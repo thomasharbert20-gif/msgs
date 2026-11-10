@@ -1,0 +1,13 @@
+.gradle/
+build/
+local.properties
+*.iml
+.idea/
+captures/
+.cxx/
+dist/
+app/libs/*.aar
+app/libs/*.jar
+bridge/go.sum
+build.log
+.DS_Store
