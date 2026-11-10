@@ -92,10 +92,11 @@ private fun Navigator(pendingConversation: String?, onPendingHandled: () -> Unit
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 600.dp
+        val listWidth = if (maxWidth >= 840.dp) 400.dp else 360.dp
         val top = stack.last()
         if (wide) {
             Row(Modifier.fillMaxSize()) {
-                Box(Modifier.width(if (maxWidth >= 840.dp) 400.dp else 360.dp).fillMaxHeight()) {
+                Box(Modifier.width(listWidth).fillMaxHeight()) {
                     InboxScreen(
                         selectedId = (top as? Route.Chat)?.id ?: (top as? Route.Contact)?.id,
                         onOpen = { openChat(it) },
