@@ -2,8 +2,10 @@
 
 package com.msgs.app.ui
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -32,6 +34,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -60,6 +63,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -80,6 +84,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -92,26 +98,30 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import com.msgs.app.data.Prefs
 import com.msgs.app.engine.Conversation
 import com.msgs.app.engine.Engine
 import com.msgs.app.engine.Media
 import com.msgs.app.engine.MediaRepo
 import com.msgs.app.engine.Message
 import com.msgs.app.engine.Reaction
+import com.msgs.app.engine.VoicePlayer
+import com.msgs.app.engine.VoiceRecorder
+import com.msgs.app.engine.audioDurationMs
 import com.msgs.app.engine.deliveryText
 import com.msgs.app.engine.previewText
 import com.msgs.app.engine.tombstoneText
-import com.msgs.app.ui.theme.Danger
-import com.msgs.app.ui.theme.Geist
-import com.msgs.app.ui.theme.LocalPalette
-import com.msgs.app.ui.theme.Palette
-import com.msgs.app.ui.theme.TextPrimary
-import com.msgs.app.ui.theme.TextSecondary
-import com.msgs.app.ui.theme.TextTertiary
-import com.msgs.app.ui.theme.barGlass
-import com.msgs.app.ui.theme.nameStyle
+import com.msgs.app.ui.theme.Archivo
+import com.msgs.app.ui.theme.ArchivoWide
+import com.msgs.app.ui.theme.Ink
+import com.msgs.app.ui.theme.bubbleColor
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 
 private val reactionChoices = listOf("❤️", "👍", "👎", "😂", "😮", "😥")
 
@@ -158,22 +168,34 @@ private fun buildItems(messages: List<Message>, conv: Conversation?): List<ChatI
 @Composable
 fun ChatScreen(convId: String, showBack: Boolean, onBack: () -> Unit, onContact: () -> Unit) {
     val context = LocalContext.current
-    val conv = Engine.conversations.collectAsState().value[convId]
+    val convMap by Engine.conversations.collectAsState()
+    val conv = convMap[convId]
     val messages = Engine.messages.collectAsState().value[convId].orEmpty()
     val typingMap = Engine.typing.collectAsState().value[convId].orEmpty()
     val loading = Engine.loading.collectAsState().value.contains(convId)
     val hasOlder = Engine.hasOlder.collectAsState().value[convId] == true
+    val bubbles by Prefs.bubbles.collectAsState()
+    val bubbleDefault by Prefs.bubbleDefault.collectAsState()
+    val mine = bubbleColor(bubbles[convId] ?: bubbleDefault)
+    val othersUnread = remember(convMap, convId) { convMap.values.count { it.id != convId && it.isVisible && it.unread } }
     var draft by rememberSaveable(convId) { mutableStateOf("") }
     var replyTo by remember(convId) { mutableStateOf<Message?>(null) }
     var viewer by remember { mutableStateOf<Media?>(null) }
     var tick by remember { mutableIntStateOf(0) }
+    var recordingSince by remember(convId) { mutableStateOf<Long?>(null) }
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    val recorder = remember(convId) { VoiceRecorder(context.applicationContext) }
     val listState = rememberLazyListState()
 
     DisposableEffect(convId) {
         Engine.openConversationId = convId
         Engine.loadMessages(convId)
         Engine.markConversationRead(convId)
-        onDispose { if (Engine.openConversationId == convId) Engine.openConversationId = null }
+        onDispose {
+            if (Engine.openConversationId == convId) Engine.openConversationId = null
+            recorder.cancel()
+            VoicePlayer.stop()
+        }
     }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -181,6 +203,22 @@ fun ChatScreen(convId: String, showBack: Boolean, onBack: () -> Unit, onContact:
             Engine.sendMedia(context, convId, uri, replyTo?.id)
             replyTo = null
         }
+    }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val uri = cameraUri
+        if (ok && uri != null) {
+            Engine.sendMedia(context, convId, uri, replyTo?.id, mimeOverride = "image/jpeg")
+            replyTo = null
+        }
+        cameraUri = null
+    }
+
+    fun beginRecording() {
+        if (recorder.start()) recordingSince = System.currentTimeMillis()
+        else Engine.toast("Couldn't start recording")
+    }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) beginRecording() else Engine.toast("Msgs needs the microphone to record voice messages")
     }
 
     val chatItems = remember(messages, conv) { buildItems(messages, conv) }
@@ -207,14 +245,14 @@ fun ChatScreen(convId: String, showBack: Boolean, onBack: () -> Unit, onContact:
         if (nearTop && hasOlder) Engine.loadOlder(convId)
     }
 
-    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
-        ChatHeader(conv, typing, showBack, onBack, onContact)
+    Column(Modifier.fillMaxSize().background(Ink.Bg)) {
+        ChatHeader(conv, typing, showBack, othersUnread, onBack, onContact)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 state = listState,
                 reverseLayout = true,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 10.dp),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 10.dp),
             ) {
                 if (typing) item(key = "typing") { TypingBubble(conv) }
                 items(chatItems.asReversed(), key = { it.key }) { item ->
@@ -226,6 +264,7 @@ fun ChatScreen(convId: String, showBack: Boolean, onBack: () -> Unit, onContact:
                             item = item,
                             conv = conv,
                             all = messages,
+                            mine = mine,
                             onReply = { replyTo = it },
                             onOpenImage = { viewer = it },
                             onContact = onContact,
@@ -236,7 +275,7 @@ fun ChatScreen(convId: String, showBack: Boolean, onBack: () -> Unit, onContact:
                     item(key = "loading") {
                         Text(
                             "Loading messages…",
-                            color = TextSecondary,
+                            color = Ink.Text2,
                             fontSize = 14.sp,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth().padding(24.dp),
@@ -248,7 +287,7 @@ fun ChatScreen(convId: String, showBack: Boolean, onBack: () -> Unit, onContact:
         if (conv?.readOnly == true) {
             Text(
                 "You can't reply to this conversation",
-                color = TextSecondary,
+                color = Ink.Text2,
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(20.dp),
@@ -271,6 +310,34 @@ fun ChatScreen(convId: String, showBack: Boolean, onBack: () -> Unit, onContact:
                 onAttach = {
                     picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
                 },
+                onCamera = {
+                    val dir = File(context.cacheDir, "media").apply { mkdirs() }
+                    val uri = FileProvider.getUriForFile(
+                        context,
+                        context.packageName + ".files",
+                        File(dir, "camera_${System.currentTimeMillis()}.jpg"),
+                    )
+                    cameraUri = uri
+                    runCatching { camera.launch(uri) }.onFailure { Engine.toast("No camera app found") }
+                },
+                mine = mine,
+                recordingSince = recordingSince,
+                onMic = {
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        beginRecording()
+                    } else {
+                        micPermission.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                },
+                onSendRecording = {
+                    recordingSince = null
+                    val file = recorder.finish()
+                    if (file != null) Engine.sendVoice(context, convId, file) else Engine.toast("That was too short to send")
+                },
+                onCancelRecording = {
+                    recordingSince = null
+                    recorder.cancel()
+                },
             )
         }
     }
@@ -279,48 +346,104 @@ fun ChatScreen(convId: String, showBack: Boolean, onBack: () -> Unit, onContact:
 }
 
 @Composable
-private fun ChatHeader(conv: Conversation?, typing: Boolean, showBack: Boolean, onBack: () -> Unit, onContact: () -> Unit) {
+private fun ChatHeader(
+    conv: Conversation?,
+    typing: Boolean,
+    showBack: Boolean,
+    othersUnread: Int,
+    onBack: () -> Unit,
+    onContact: () -> Unit,
+) {
     val context = LocalContext.current
     val subtitle = when {
         conv == null -> ""
         typing -> "typing…"
-        conv.isGroup -> conv.others.joinToString(", ") { it.first.ifBlank { it.displayName } } + " and you"
+        conv.isGroup -> conv.others.joinToString(", ") { it.first.ifBlank { it.displayName } }
         conv.rcs -> "RCS chat"
         else -> "Text message"
     }
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .statusBarsPadding()
-            .padding(start = if (showBack) 14.dp else 20.dp, end = 14.dp, top = 10.dp, bottom = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (showBack) {
-            GlassIconButton(MsgsIcons.Back, "Back to inbox", onBack)
-            Spacer(Modifier.width(10.dp))
-        }
-        Row(
-            Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(18.dp))
-                .clickable(role = Role.Button, onClick = onContact)
-                .padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Avatar(conv, 44.dp)
-            Spacer(Modifier.width(10.dp))
-            androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
-                Text(conv?.title.orEmpty(), style = nameStyle(19), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(subtitle, fontSize = 13.sp, color = if (typing) LocalPalette.current.accent else TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    val number = conv?.other?.let { it.rawNumber.ifBlank { it.number } }
+    Column(Modifier.fillMaxWidth().background(Ink.Bg).statusBarsPadding()) {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)) {
+            if (showBack) {
+                Row(
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding(top = 8.dp)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(Ink.Raised)
+                        .clickable(role = Role.Button, onClick = onBack)
+                        .semantics { contentDescription = "Back to messages" }
+                        .padding(start = 8.dp, end = if (othersUnread > 0) 15.dp else 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(MsgsIcons.Back, contentDescription = null, tint = Ink.Text, modifier = Modifier.size(22.dp))
+                    if (othersUnread > 0) {
+                        Spacer(Modifier.width(2.dp))
+                        Text(
+                            othersUnread.toString(),
+                            fontFamily = ArchivoWide,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 15.sp,
+                            color = Ink.Text,
+                        )
+                    }
+                }
+            }
+            Column(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .widthIn(max = 220.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .clickable(role = Role.Button, onClick = onContact)
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Box(
+                    Modifier
+                        .size(64.dp)
+                        .then(if (typing) Modifier.border(2.dp, Ink.GreenText, CircleShape) else Modifier)
+                        .padding(4.dp),
+                ) {
+                    Avatar(conv, 56.dp)
+                }
+                Spacer(Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        conv?.title.orEmpty(),
+                        fontFamily = ArchivoWide,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 15.sp,
+                        lineHeight = 18.sp,
+                        color = Ink.Text,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Icon(MsgsIcons.Chevron, contentDescription = null, tint = Ink.Text3, modifier = Modifier.size(12.dp))
+                }
+                Text(
+                    subtitle,
+                    fontSize = 12.sp,
+                    lineHeight = 15.sp,
+                    fontWeight = if (typing) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (typing) Ink.GreenText else Ink.Text3,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (conv?.isGroup == false && !number.isNullOrBlank()) {
+                CircleIcon(
+                    MsgsIcons.Phone,
+                    "Call ${conv.title}",
+                    { runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number"))) } },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(top = 8.dp),
+                    iconSize = 20.dp,
+                )
             }
         }
-        val number = conv?.other?.let { it.rawNumber.ifBlank { it.number } }
-        if (conv?.isGroup == false && !number.isNullOrBlank()) {
-            Spacer(Modifier.width(8.dp))
-            GlassIconButton(MsgsIcons.Phone, "Call", {
-                runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number"))) }
-            })
-        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Ink.Line))
     }
 }
 
@@ -330,13 +453,13 @@ private fun DayLabel(ts: Long) {
     val (day, time) = remember(ts) { chatDayLabel(context, ts) }
     Text(
         buildAnnotatedString {
-            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = TextSecondary)) { append(day) }
+            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Ink.Text2)) { append(day) }
             append("  $time")
         },
-        fontSize = 12.5.sp,
-        color = TextTertiary,
+        fontSize = 12.sp,
+        color = Ink.Text3,
         textAlign = TextAlign.Center,
-        modifier = Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 6.dp),
+        modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 8.dp),
     )
 }
 
@@ -344,8 +467,8 @@ private fun DayLabel(ts: Long) {
 private fun NoticeLine(text: String) {
     Text(
         text,
-        fontSize = 12.5.sp,
-        color = TextTertiary,
+        fontSize = 12.sp,
+        color = Ink.Text3,
         textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp, horizontal = 24.dp),
     )
@@ -357,36 +480,38 @@ private fun ReceiptLine(item: ChatItem.Receipt) {
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
         Text(
             item.text,
-            fontSize = 12.5.sp,
-            fontWeight = FontWeight.Medium,
-            color = if (failed) Danger else TextTertiary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = if (failed) Ink.Danger else Ink.Text3,
             modifier = Modifier
-                .padding(top = 3.dp, end = 6.dp)
+                .padding(top = 4.dp, end = 4.dp)
                 .then(if (failed) Modifier.clickable { Engine.retry(item.m) } else Modifier),
         )
     }
 }
 
-private fun nameColor(seed: String, p: Palette): Color {
-    val colors = listOf(p.accent, Color(0xFFF2B38A), Color(0xFF9CC8F2), Color(0xFFE6A2C6), Color(0xFFF2D27A), Color(0xFFB7A3F0))
-    return colors[(seed.hashCode() and 0x7fffffff) % colors.size]
-}
+private val senderColors = listOf(
+    Color(0xFF2FAE6F), Color(0xFF8FB4FF), Color(0xFFF2A97E),
+    Color(0xFFE6A2C6), Color(0xFFF2D27A), Color(0xFFB7A3F0),
+)
+
+private fun nameColor(seed: String): Color = senderColors[(seed.hashCode() and 0x7fffffff) % senderColors.size]
 
 @Composable
 private fun MessageBubble(
     item: ChatItem.Bubble,
     conv: Conversation?,
     all: List<Message>,
+    mine: Color,
     onReply: (Message) -> Unit,
     onOpenImage: (Media) -> Unit,
     onContact: () -> Unit,
 ) {
     val m = item.m
-    val p = LocalPalette.current
     val clipboard = LocalClipboardManager.current
     var menu by remember { mutableStateOf(false) }
-    val big = 22.dp
-    val small = 7.dp
+    val big = 20.dp
+    val small = 6.dp
     val shape = if (m.fromMe) {
         RoundedCornerShape(topStart = big, topEnd = if (item.first) big else small, bottomEnd = if (item.last) big else small, bottomStart = big)
     } else {
@@ -394,30 +519,32 @@ private fun MessageBubble(
     }
     val sender = conv?.participants?.firstOrNull { it.id == m.participantId }
     val group = conv?.isGroup == true
+    val fill = if (m.fromMe) mine else Ink.Raised
+    val hasReactions = m.reactions.isNotEmpty()
+    val local = m.localPreview
 
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(top = if (item.first) 6.dp else 2.dp, bottom = if (m.reactions.isNotEmpty()) 12.dp else 0.dp),
+            .padding(top = if (hasReactions) 16.dp else if (item.first) 6.dp else 2.dp),
         horizontalArrangement = if (m.fromMe) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.Bottom,
     ) {
         if (group && !m.fromMe) {
             if (item.showAvatar) {
-                Avatar(conv, 34.dp, person = sender, modifier = Modifier.clip(CircleShape).clickable(onClick = onContact))
+                Avatar(conv, 32.dp, person = sender, modifier = Modifier.clickable(onClick = onContact))
             } else {
-                Spacer(Modifier.width(34.dp))
+                Spacer(Modifier.width(32.dp))
             }
             Spacer(Modifier.width(8.dp))
         }
         Box {
-            androidx.compose.foundation.layout.Column(
+            Column(
                 Modifier
-                    .widthIn(max = 300.dp)
-                    .alpha(if (m.pending) 0.75f else 1f)
+                    .widthIn(max = 290.dp)
+                    .alpha(if (m.pending) 0.7f else 1f)
                     .clip(shape)
-                    .background(if (m.fromMe) p.ink else Color.White.copy(alpha = 0.11f))
-                    .border(1.dp, Color.White.copy(alpha = 0.08f), shape)
+                    .background(fill)
                     .combinedClickable(
                         onClick = { if (m.failed) Engine.retry(m) },
                         onLongClick = { menu = true },
@@ -426,45 +553,59 @@ private fun MessageBubble(
                 if (item.showName) {
                     Text(
                         sender?.first?.ifBlank { null } ?: sender?.displayName ?: m.senderName.ifBlank { "Someone" },
-                        style = nameStyle(14).copy(color = nameColor(m.participantId, p)),
-                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 9.dp),
+                        fontFamily = ArchivoWide,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = nameColor(m.participantId),
+                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 8.dp),
                     )
                 }
                 if (m.replyTo.isNotBlank()) {
                     val quoted = all.firstOrNull { it.id == m.replyTo }
                     if (quoted != null) {
                         val who = if (quoted.fromMe) "You" else conv?.participants?.firstOrNull { it.id == quoted.participantId }?.displayName ?: quoted.senderName
-                        androidx.compose.foundation.layout.Column(
+                        Column(
                             Modifier
-                                .padding(start = 8.dp, end = 8.dp, top = 8.dp)
+                                .padding(start = 6.dp, end = 6.dp, top = 6.dp)
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(Color.White.copy(alpha = 0.08f))
+                                .background(Color.Black.copy(alpha = 0.28f))
                                 .padding(horizontal = 12.dp, vertical = 8.dp),
                         ) {
-                            Text(who, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary)
-                            Text(quoted.previewText(), fontSize = 13.sp, color = TextSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(who, fontFamily = ArchivoWide, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Ink.Text)
+                            Text(quoted.previewText(), fontSize = 13.sp, color = Ink.Text2, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
-                m.localPreview?.let { LocalImage(it) }
-                m.media.forEach { media -> MediaBlock(media, onOpenImage) }
+                if (local != null) {
+                    if (local.startsWith("audio:")) {
+                        val path = local.removePrefix("audio:")
+                        VoiceNote(key = "local:$path", fromMe = true, mine = mine) { File(path).takeIf { it.exists() } }
+                    } else {
+                        LocalImage(local)
+                    }
+                }
+                m.media.forEach { media ->
+                    if (media.isAudio) {
+                        VoiceNote(key = media.cacheKey, fromMe = m.fromMe, mine = mine) { MediaRepo.fullFile(media) }
+                    } else {
+                        MediaBlock(media, onOpenImage)
+                    }
+                }
                 if (m.text.isNotBlank()) {
                     Text(
                         m.text,
-                        fontSize = 16.5.sp,
+                        fontSize = 17.sp,
                         lineHeight = 22.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = TextPrimary,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        color = Ink.Text,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
                     )
                 }
             }
-            if (m.reactions.isNotEmpty()) {
+            if (hasReactions) {
                 Row(
                     Modifier
-                        .align(if (m.fromMe) Alignment.BottomStart else Alignment.BottomEnd)
-                        .offset(y = 14.dp)
-                        .padding(horizontal = 10.dp),
+                        .align(if (m.fromMe) Alignment.TopStart else Alignment.TopEnd)
+                        .offset(x = if (m.fromMe) (-10).dp else 10.dp, y = (-16).dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     m.reactions.forEach { ReactionPill(it) }
@@ -483,7 +624,7 @@ private fun MessageBubble(
                         )
                     }
                 }
-                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+                HorizontalDivider(color = Ink.Line2)
                 DropdownMenuItem(
                     text = { Text("Reply") },
                     leadingIcon = { Icon(MsgsIcons.Reply, contentDescription = null) },
@@ -497,8 +638,8 @@ private fun MessageBubble(
                     )
                 }
                 DropdownMenuItem(
-                    text = { Text("Delete", color = Danger) },
-                    leadingIcon = { Icon(MsgsIcons.Trash, contentDescription = null, tint = Danger) },
+                    text = { Text("Delete", color = Ink.Danger) },
+                    leadingIcon = { Icon(MsgsIcons.Trash, contentDescription = null, tint = Ink.Danger) },
                     onClick = { Engine.deleteMessage(m); menu = false },
                 )
             }
@@ -508,21 +649,74 @@ private fun MessageBubble(
 
 @Composable
 private fun ReactionPill(r: Reaction) {
-    val p = LocalPalette.current
-    val shape = RoundedCornerShape(13.dp)
     Row(
         Modifier
-            .clip(shape)
-            .background(Color(0xE6181C16))
-            .border(1.dp, if (r.mine) p.accent.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.14f), shape)
-            .padding(horizontal = 8.dp, vertical = 3.dp),
+            .clip(RoundedCornerShape(17.dp))
+            .background(Ink.Bg)
+            .padding(3.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (r.mine) Ink.Green else Ink.Raised2)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(r.emoji, fontSize = 13.sp)
+        Text(r.emoji, fontSize = 14.sp)
         if (r.count > 1) {
             Spacer(Modifier.width(4.dp))
-            Text(r.count.toString(), fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = TextPrimary)
+            Text(r.count.toString(), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Ink.Text)
         }
+    }
+}
+
+/** A voice message: play button, bars that fill as it plays, and its length. */
+@Composable
+private fun VoiceNote(key: String, fromMe: Boolean, mine: Color, loadFile: suspend () -> File?) {
+    val scope = rememberCoroutineScope()
+    val player by VoicePlayer.state.collectAsState()
+    var file by remember(key) { mutableStateOf<File?>(null) }
+    val duration by produceState(0, key) {
+        val f = loadFile()
+        file = f
+        value = if (f != null) withContext(Dispatchers.IO) { audioDurationMs(f) } else 0
+    }
+    val active = player.key == key
+    val playing = active && player.playing
+    val progress = if (active && player.durationMs > 0) player.positionMs / player.durationMs.toFloat() else 0f
+    val shown = if (active) player.positionMs else duration
+    Row(
+        Modifier.width(236.dp).padding(start = 6.dp, end = 14.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(Ink.Text)
+                .clickable(role = Role.Button) {
+                    scope.launch {
+                        val f = file ?: loadFile()?.also { file = it }
+                        if (f != null) VoicePlayer.toggle(key, f) else Engine.toast("Couldn't load that voice message")
+                    }
+                }
+                .semantics { contentDescription = if (playing) "Pause voice message" else "Play voice message" },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                if (playing) MsgsIcons.Pause else MsgsIcons.Play,
+                contentDescription = null,
+                tint = if (fromMe) mine else Ink.Bg,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Waveform(key, progress, Ink.Text, Modifier.weight(1f).height(26.dp))
+        Spacer(Modifier.width(10.dp))
+        Text(
+            if (shown > 0) formatDuration(shown) else "0:00",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = Ink.Text,
+            style = TextStyle(fontFeatureSettings = "tnum"),
+        )
     }
 }
 
@@ -537,7 +731,7 @@ private fun MediaBlock(media: Media, onOpenImage: (Media) -> Unit) {
             Modifier
                 .width(250.dp)
                 .aspectRatio(ratio)
-                .background(Color.Black.copy(alpha = 0.25f))
+                .background(Ink.Raised2)
                 .clickable {
                     if (media.isImage) onOpenImage(media) else scope.launch { MediaRepo.open(context, media) }
                 },
@@ -546,9 +740,9 @@ private fun MediaBlock(media: Media, onOpenImage: (Media) -> Unit) {
             bmp?.let { Image(it, contentDescription = "Photo", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
             if (media.isVideo) {
                 Box(
-                    Modifier.size(54.dp).clip(CircleShape).background(Color.Black.copy(alpha = 0.5f)),
+                    Modifier.size(54.dp).clip(CircleShape).background(Ink.Bg),
                     contentAlignment = Alignment.Center,
-                ) { Icon(MsgsIcons.Play, contentDescription = "Play video", tint = Color.White, modifier = Modifier.size(26.dp)) }
+                ) { Icon(MsgsIcons.Play, contentDescription = "Play video", tint = Ink.Text, modifier = Modifier.size(24.dp)) }
             }
         }
     } else {
@@ -559,12 +753,12 @@ private fun MediaBlock(media: Media, onOpenImage: (Media) -> Unit) {
                 .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(if (media.isAudio) MsgsIcons.Play else MsgsIcons.File, contentDescription = null, tint = TextPrimary, modifier = Modifier.size(22.dp))
+            Icon(MsgsIcons.File, contentDescription = null, tint = Ink.Text, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
             Text(
-                media.name.ifBlank { if (media.isAudio) "Voice message" else "Attachment" },
+                media.name.ifBlank { "Attachment" },
                 fontSize = 15.sp,
-                color = TextPrimary,
+                color = Ink.Text,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -576,9 +770,9 @@ private fun MediaBlock(media: Media, onOpenImage: (Media) -> Unit) {
 private fun LocalImage(uri: String) {
     val context = LocalContext.current
     val bmp by produceState<ImageBitmap?>(null, uri) {
-        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { decodeUri(context, Uri.parse(uri)) }
+        value = withContext(Dispatchers.IO) { decodeUri(context, Uri.parse(uri)) }
     }
-    Box(Modifier.width(250.dp).aspectRatio(1.25f).background(Color.Black.copy(alpha = 0.25f))) {
+    Box(Modifier.width(250.dp).aspectRatio(1.25f).background(Ink.Raised2)) {
         bmp?.let { Image(it, contentDescription = "Sending photo", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
     }
 }
@@ -602,18 +796,19 @@ private fun TypingBubble(conv: Conversation?) {
         animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Restart),
         label = "phase",
     )
-    Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.Bottom) {
-        if (conv?.isGroup == true) Spacer(Modifier.width(42.dp))
+    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.Bottom) {
+        if (conv?.isGroup == true) Spacer(Modifier.width(40.dp))
         Row(
             Modifier
-                .clip(RoundedCornerShape(22.dp))
-                .background(Color.White.copy(alpha = 0.11f))
-                .padding(horizontal = 18.dp, vertical = 15.dp),
-            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                .clip(RoundedCornerShape(20.dp))
+                .background(Ink.Raised)
+                .padding(horizontal = 16.dp, vertical = 14.dp)
+                .semantics { contentDescription = "Typing" },
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             repeat(3) { i ->
                 val lit = (phase.toInt() % 3) == i
-                Box(Modifier.size(8.dp).clip(CircleShape).background(TextPrimary.copy(alpha = if (lit) 0.9f else 0.35f)))
+                Box(Modifier.size(8.dp).clip(CircleShape).background(if (lit) Ink.Text2 else Ink.Mono))
             }
         }
     }
@@ -628,73 +823,128 @@ private fun Composer(
     onCancelReply: () -> Unit,
     onSend: () -> Unit,
     onAttach: () -> Unit,
+    onCamera: () -> Unit,
+    mine: Color,
+    recordingSince: Long?,
+    onMic: () -> Unit,
+    onSendRecording: () -> Unit,
+    onCancelRecording: () -> Unit,
 ) {
-    val p = LocalPalette.current
-    androidx.compose.foundation.layout.Column(
+    Column(
         Modifier
             .fillMaxWidth()
+            .background(Ink.Bg)
             .navigationBarsPadding()
             .imePadding()
-            .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 12.dp),
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 12.dp),
     ) {
-        if (replyTo != null) {
+        if (replyTo != null && recordingSince == null) {
             Row(
                 Modifier
                     .padding(bottom = 8.dp)
                     .fillMaxWidth()
-                    .barGlass(RoundedCornerShape(18.dp))
-                    .padding(start = 14.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(Ink.Raised)
+                    .padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(MsgsIcons.Reply, contentDescription = null, tint = p.accent, modifier = Modifier.size(18.dp))
+                Icon(MsgsIcons.Reply, contentDescription = null, tint = Ink.GreenText, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(10.dp))
                 Text(
                     replyTo.previewText(),
                     fontSize = 14.sp,
-                    color = TextSecondary,
+                    color = Ink.Text2,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                GlassIconButton(MsgsIcons.Close, "Cancel reply", onCancelReply, size = 34.dp, iconSize = 16.dp)
+                CircleIcon(MsgsIcons.Close, "Cancel reply", onCancelReply, size = 36.dp, iconSize = 16.dp, background = Ink.Raised2)
             }
         }
         Row(verticalAlignment = Alignment.Bottom) {
-            GlassIconButton(MsgsIcons.Plus, "Add a photo or video", onAttach, size = 50.dp, iconSize = 22.dp)
-            Spacer(Modifier.width(8.dp))
-            Box(
-                Modifier
-                    .weight(1f)
-                    .heightIn(min = 50.dp)
-                    .barGlass(RoundedCornerShape(25.dp))
-                    .padding(horizontal = 18.dp, vertical = 13.dp),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                BasicTextField(
-                    value = draft,
-                    onValueChange = onDraft,
-                    textStyle = TextStyle(fontFamily = Geist, fontSize = 16.5.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium, color = TextPrimary),
-                    cursorBrush = SolidColor(p.accent),
-                    maxLines = 6,
-                    modifier = Modifier.fillMaxWidth(),
-                    decorationBox = { inner ->
-                        Box {
-                            if (draft.isEmpty()) {
-                                Text(
-                                    if (conv?.rcs == true) "RCS message" else "Text message",
-                                    fontSize = 16.5.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = TextTertiary,
-                                )
+            if (recordingSince != null) {
+                CircleIcon(MsgsIcons.Trash, "Discard recording", onCancelRecording, size = 48.dp, iconSize = 20.dp, tint = Ink.Danger)
+                Spacer(Modifier.width(8.dp))
+                RecordingField(recordingSince, Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                CircleIcon(MsgsIcons.Send, "Send voice message", onSendRecording, size = 48.dp, iconSize = 22.dp, background = mine)
+            } else {
+                CircleIcon(MsgsIcons.Plus, "Add a photo or video", onAttach, size = 48.dp, iconSize = 22.dp)
+                Spacer(Modifier.width(8.dp))
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .heightIn(min = 48.dp)
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(Ink.Raised)
+                        .padding(start = 18.dp, end = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = onDraft,
+                        textStyle = TextStyle(fontFamily = Archivo, fontSize = 16.sp, lineHeight = 22.sp, color = Ink.Text),
+                        cursorBrush = SolidColor(Ink.GreenText),
+                        maxLines = 6,
+                        modifier = Modifier.weight(1f).padding(vertical = 13.dp),
+                        decorationBox = { inner ->
+                            Box {
+                                if (draft.isEmpty()) {
+                                    Text(
+                                        if (conv?.rcs == true) "RCS message" else "Text message",
+                                        fontSize = 16.sp,
+                                        color = Ink.Text3,
+                                    )
+                                }
+                                inner()
                             }
-                            inner()
-                        }
-                    },
-                )
+                        },
+                    )
+                    if (draft.isEmpty()) {
+                        CircleIcon(MsgsIcons.Camera, "Take a photo", onCamera, size = 44.dp, iconSize = 21.dp, background = Color.Transparent, tint = Ink.Text2)
+                    } else {
+                        Spacer(Modifier.width(14.dp))
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                if (draft.isBlank()) {
+                    CircleIcon(MsgsIcons.Mic, "Record a voice message", onMic, size = 48.dp, iconSize = 21.dp, background = mine)
+                } else {
+                    CircleIcon(MsgsIcons.Send, "Send", onSend, size = 48.dp, iconSize = 22.dp, background = mine)
+                }
             }
-            Spacer(Modifier.width(8.dp))
-            AccentIconButton(MsgsIcons.Send, "Send", onSend, size = 50.dp, enabled = draft.isNotBlank())
         }
+    }
+}
+
+@Composable
+private fun RecordingField(since: Long, modifier: Modifier = Modifier) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(since) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(200)
+        }
+    }
+    val blink = ((now - since) / 600) % 2 == 0L
+    Row(
+        modifier
+            .height(48.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(Ink.Raised)
+            .padding(horizontal = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(10.dp).clip(CircleShape).background(if (blink) Ink.Danger else Ink.Danger.copy(alpha = 0.35f)))
+        Spacer(Modifier.width(10.dp))
+        Text("Recording", fontSize = 16.sp, color = Ink.Text, modifier = Modifier.weight(1f))
+        Text(
+            formatDuration((now - since).toInt()),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            color = Ink.Text,
+            style = TextStyle(fontFeatureSettings = "tnum"),
+        )
     }
 }
 
@@ -709,7 +959,7 @@ fun ImageViewer(media: Media, onClose: () -> Unit) {
             scale = (scale * zoom).coerceIn(1f, 5f)
             offset = if (scale == 1f) Offset.Zero else offset + pan
         }
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
+        Box(Modifier.fillMaxSize().background(Ink.Bg)) {
             (full ?: thumb)?.let {
                 Image(
                     it,
@@ -721,7 +971,7 @@ fun ImageViewer(media: Media, onClose: () -> Unit) {
                         .graphicsLayer(scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y),
                 )
             }
-            GlassIconButton(
+            CircleIcon(
                 MsgsIcons.Close,
                 "Close",
                 onClose,

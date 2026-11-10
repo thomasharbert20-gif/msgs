@@ -1,5 +1,6 @@
 package com.msgs.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -31,6 +33,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
@@ -42,19 +45,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.msgs.app.engine.Engine
 import com.msgs.app.engine.Participant
-import com.msgs.app.ui.theme.Geist
-import com.msgs.app.ui.theme.LocalPalette
-import com.msgs.app.ui.theme.TextPrimary
-import com.msgs.app.ui.theme.TextSecondary
-import com.msgs.app.ui.theme.TextTertiary
-import com.msgs.app.ui.theme.TitleFont
-import com.msgs.app.ui.theme.barGlass
-import com.msgs.app.ui.theme.nameStyle
+import com.msgs.app.ui.theme.Archivo
+import com.msgs.app.ui.theme.ArchivoExpanded
+import com.msgs.app.ui.theme.ArchivoWide
+import com.msgs.app.ui.theme.Ink
 import kotlinx.coroutines.launch
 
 @Composable
 fun NewMessageScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
-    val p = LocalPalette.current
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
     var contacts by remember { mutableStateOf<List<Participant>?>(null) }
@@ -81,45 +79,52 @@ fun NewMessageScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
         }
     }
 
-    Column(Modifier.fillMaxSize().imePadding()) {
-        Row(
-            Modifier.fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            GlassIconButton(MsgsIcons.Back, "Back", onBack)
-            Spacer(Modifier.width(12.dp))
-            Text("NEW MESSAGE", fontFamily = TitleFont, fontSize = 32.sp, letterSpacing = 0.5.sp, color = TextPrimary)
+    Column(Modifier.fillMaxSize().background(Ink.Bg).imePadding()) {
+        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 16.dp, top = 10.dp)) {
+            CircleIcon(MsgsIcons.Back, "Back", onBack)
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "New message",
+                fontFamily = ArchivoExpanded,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 34.sp,
+                lineHeight = 38.sp,
+                letterSpacing = (-0.5).sp,
+                color = Ink.Text,
+                modifier = Modifier.padding(start = 8.dp),
+            )
         }
         Row(
             Modifier
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 8.dp)
                 .fillMaxWidth()
-                .height(54.dp)
-                .barGlass(RoundedCornerShape(27.dp))
+                .height(52.dp)
+                .clip(RoundedCornerShape(26.dp))
+                .background(Ink.Raised)
                 .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("To", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary)
+            Text("To", fontFamily = ArchivoWide, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = Ink.Text2)
             Spacer(Modifier.width(12.dp))
             BasicTextField(
                 value = query,
                 onValueChange = { query = it },
                 singleLine = true,
-                textStyle = TextStyle(fontFamily = Geist, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextPrimary),
-                cursorBrush = SolidColor(p.accent),
+                textStyle = TextStyle(fontFamily = Archivo, fontSize = 16.sp, color = Ink.Text),
+                cursorBrush = SolidColor(Ink.GreenText),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { if (digits.length >= 3) start(query) }),
                 modifier = Modifier.weight(1f).focusRequester(focus),
                 decorationBox = { inner ->
                     Box {
-                        if (query.isEmpty()) Text("Name or number", fontSize = 16.sp, fontWeight = FontWeight.Medium, color = TextTertiary)
+                        if (query.isEmpty()) Text("Name or number", fontSize = 16.sp, color = Ink.Text3)
                         inner()
                     }
                 },
             )
         }
         if (busy) {
-            Text("Opening the conversation…", color = TextSecondary, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            Text("Opening the conversation…", color = Ink.Text2, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
             if (digits.length >= 3) {
@@ -128,16 +133,16 @@ fun NewMessageScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
                         Modifier.fillMaxWidth().clickable { start(query) }.padding(horizontal = 20.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(Modifier.size(48.dp).barGlass(RoundedCornerShape(24.dp)), contentAlignment = Alignment.Center) {
-                            Icon(MsgsIcons.Send, contentDescription = null, tint = p.accent, modifier = Modifier.size(20.dp))
+                        Box(Modifier.size(50.dp).clip(CircleShape).background(Ink.Green), contentAlignment = Alignment.Center) {
+                            Icon(MsgsIcons.Send, contentDescription = null, tint = Ink.Text, modifier = Modifier.size(20.dp))
                         }
                         Spacer(Modifier.width(14.dp))
-                        Text("Send to $query", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Send to $query", fontFamily = ArchivoWide, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
             if (contacts == null) {
-                item { Text("Loading contacts…", color = TextSecondary, fontSize = 14.sp, modifier = Modifier.padding(24.dp)) }
+                item { Text("Loading contacts…", color = Ink.Text2, fontSize = 14.sp, modifier = Modifier.padding(24.dp)) }
             }
             items(filtered) { c ->
                 Row(
@@ -147,11 +152,11 @@ fun NewMessageScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
                         .padding(horizontal = 20.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Avatar(null, 48.dp, person = c)
+                    Avatar(null, 50.dp, person = c)
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(c.displayName, style = nameStyle(17), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (c.name.isNotBlank()) Text(c.number, fontSize = 14.sp, color = TextSecondary)
+                        Text(c.displayName, fontFamily = ArchivoWide, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (c.name.isNotBlank()) Text(c.number, fontSize = 14.sp, color = Ink.Text2)
                     }
                 }
             }

@@ -28,15 +28,13 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.msgs.app.engine.Engine
-import com.msgs.app.ui.theme.AmbientBackground
+import com.msgs.app.ui.theme.Ink
 import com.msgs.app.ui.theme.MsgsTheme
-import com.msgs.app.ui.theme.TextSecondary
 import com.msgs.app.update.Updater
 
 sealed interface Route {
@@ -58,7 +56,7 @@ fun AppRoot(pendingConversation: String?, onPendingHandled: () -> Unit) {
         LaunchedEffect(status.paired) {
             if (status.paired) Updater.check(context)
         }
-        AmbientBackground(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().background(Ink.Bg)) {
             if (!status.paired) {
                 PairingScreen()
             } else {
@@ -104,7 +102,7 @@ private fun Navigator(pendingConversation: String?, onPendingHandled: () -> Unit
                         onSettings = { push(Route.Settings) },
                     )
                 }
-                Box(Modifier.width(1.dp).fillMaxHeight().background(Color.White.copy(alpha = 0.07f)))
+                Box(Modifier.width(1.dp).fillMaxHeight().background(Ink.Line))
                 Box(Modifier.weight(1f).fillMaxHeight()) {
                     Detail(top, wide = true, ::push, ::pop, ::openChat)
                 }
@@ -159,8 +157,8 @@ private fun EmptyDetail() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
     ) {
-        Icon(MsgsIcons.Bubble, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(40.dp))
+        Icon(MsgsIcons.Bubble, contentDescription = null, tint = Ink.Text3, modifier = Modifier.size(40.dp))
         Spacer(Modifier.height(12.dp))
-        Text("Pick a conversation", color = TextSecondary, fontSize = 16.sp, textAlign = TextAlign.Center)
+        Text("Pick a conversation", color = Ink.Text3, fontSize = 16.sp, textAlign = TextAlign.Center)
     }
 }

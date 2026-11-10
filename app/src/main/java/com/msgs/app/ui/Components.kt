@@ -1,29 +1,37 @@
 package com.msgs.app.ui
 
 import android.content.Context
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Shape
@@ -31,39 +39,27 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.msgs.app.engine.AvatarRepo
 import com.msgs.app.engine.Conversation
+import com.msgs.app.engine.Engine
 import com.msgs.app.engine.Participant
-import com.msgs.app.ui.theme.Geist
-import com.msgs.app.ui.theme.LocalPalette
-import com.msgs.app.ui.theme.TextPrimary
-import com.msgs.app.ui.theme.glass
+import com.msgs.app.ui.theme.ArchivoExpanded
+import com.msgs.app.ui.theme.ArchivoWide
+import com.msgs.app.ui.theme.BubbleColors
+import com.msgs.app.ui.theme.Ink
+import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Calendar
 import java.util.Date
-
-private val avatarGradients = listOf(
-    Color(0xFFD29374) to Color(0xFF6E3B31),
-    Color(0xFF62917D) to Color(0xFF1D3A32),
-    Color(0xFF86A271) to Color(0xFF2C432E),
-    Color(0xFF939AA6) to Color(0xFF363C46),
-    Color(0xFFB0915F) to Color(0xFF4D3B20),
-    Color(0xFFBC6B5F) to Color(0xFF4A2420),
-    Color(0xFF74869A) to Color(0xFF29323E),
-    Color(0xFFA086B6) to Color(0xFF3B2E4E),
-    Color(0xFF6294AE) to Color(0xFF1F3B4B),
-    Color(0xFFCFA77E) to Color(0xFF67472A),
-)
-
-fun gradientFor(seed: String): Brush {
-    val (a, b) = avatarGradients[(seed.hashCode() and 0x7fffffff) % avatarGradients.size]
-    return Brush.linearGradient(listOf(a, b), start = Offset.Zero, end = Offset.Infinite)
-}
+import kotlin.math.PI
+import kotlin.math.sin
 
 fun initials(name: String): String {
     val clean = name.trim()
@@ -77,7 +73,49 @@ fun initials(name: String): String {
     }
 }
 
-/** A contact or group picture, falling back to initials on a gradient. */
+private fun looksLikeNumber(label: String): Boolean {
+    val t = label.trim()
+    return t.isNotEmpty() && (t.first().isDigit() || t.first() == '+')
+}
+
+/** True when a group has no picture of its own, so it shows two members' photos instead. */
+@Composable
+fun rememberCollage(conv: Conversation?): Boolean {
+    val version by AvatarRepo.version.collectAsState()
+    return remember(conv?.id, conv?.groupAvatarUrl, conv?.participants?.size, version) {
+        conv != null && conv.isGroup && conv.groupAvatarUrl.isBlank() && conv.others.size >= 2 &&
+            !AvatarRepo.hasCustom(AvatarRepo.keyFor(conv))
+    }
+}
+
+/**
+ * A contact or group picture that fills the box [modifier] gives it. With no photo it shows
+ * initials on graphite, or a person icon for a bare phone number.
+ */
+@Composable
+fun AvatarFill(conv: Conversation?, modifier: Modifier, person: Participant? = null, initialsSize: TextUnit = 20.sp) {
+    val key = remember(conv?.id, conv?.groupAvatarUrl, person?.id) { AvatarRepo.keyFor(conv, person) }
+    val version by AvatarRepo.version.collectAsState()
+    val bitmap by produceState<ImageBitmap?>(null, key, version) { value = AvatarRepo.load(key) }
+    val label = person?.displayName ?: conv?.title ?: "?"
+    Box(modifier.background(Ink.Mono), contentAlignment = Alignment.Center) {
+        val b = bitmap
+        when {
+            b != null -> Image(b, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            looksLikeNumber(label) -> Icon(MsgsIcons.Person, contentDescription = null, tint = Ink.Text2, modifier = Modifier.fillMaxSize(0.46f))
+            else -> Text(
+                initials(label),
+                color = Ink.Text,
+                fontFamily = ArchivoExpanded,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = initialsSize,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
+/** A round contact picture. Groups without a picture show two members, overlapped. */
 @Composable
 fun Avatar(
     conv: Conversation?,
@@ -85,48 +123,53 @@ fun Avatar(
     modifier: Modifier = Modifier,
     person: Participant? = null,
     shape: Shape = CircleShape,
+    ring: Color = Ink.Bg,
 ) {
-    val key = remember(conv?.id, conv?.groupAvatarUrl, person?.id) { AvatarRepo.keyFor(conv, person) }
-    val version by AvatarRepo.version.collectAsState()
-    val bitmap by produceState<ImageBitmap?>(null, key, version) { value = AvatarRepo.load(key) }
-    val label = person?.displayName ?: conv?.title ?: "?"
-    Box(
-        modifier
-            .size(size)
-            .clip(shape)
-            .background(gradientFor(label)),
-        contentAlignment = Alignment.Center,
-    ) {
-        val b = bitmap
-        if (b != null) {
-            Image(b, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-        } else {
-            Text(
-                initials(label),
-                color = Color.White,
-                fontFamily = Geist,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = (size.value * 0.36f).sp,
+    val groupWithoutPhoto = rememberCollage(conv)
+    if (person == null && groupWithoutPhoto && conv != null) {
+        val others = conv.others
+        Box(modifier.size(size)) {
+            AvatarFill(
+                conv,
+                Modifier.align(Alignment.TopStart).size(size * 0.68f).clip(CircleShape),
+                person = others[0],
+                initialsSize = (size.value * 0.24f).sp,
             )
+            Box(
+                Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(size * 0.56f)
+                    .clip(CircleShape)
+                    .background(ring)
+                    .padding(size * 0.05f),
+            ) {
+                AvatarFill(conv, Modifier.fillMaxSize().clip(CircleShape), person = others[1], initialsSize = (size.value * 0.19f).sp)
+            }
         }
+    } else {
+        AvatarFill(conv, modifier.size(size).clip(shape), person = person, initialsSize = (size.value * 0.34f).sp)
     }
 }
 
+/** A solid round icon button. */
 @Composable
-fun GlassIconButton(
+fun CircleIcon(
     icon: ImageVector,
     description: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     size: Dp = 44.dp,
     iconSize: Dp = 21.dp,
-    tint: Color = TextPrimary,
+    background: Color = Ink.Raised,
+    tint: Color = Ink.Text,
+    enabled: Boolean = true,
 ) {
     Box(
         modifier
             .size(size)
-            .glass(CircleShape)
-            .clickable(role = Role.Button, onClick = onClick)
+            .clip(CircleShape)
+            .background(background)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
     ) {
@@ -135,42 +178,133 @@ fun GlassIconButton(
 }
 
 @Composable
-fun AccentIconButton(
-    icon: ImageVector,
-    description: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    size: Dp = 50.dp,
-    enabled: Boolean = true,
-) {
-    val p = LocalPalette.current
+fun PillButton(label: String, accent: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
         modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(if (enabled) p.accent else p.accent.copy(alpha = 0.35f))
-            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-            .semantics { contentDescription = description },
+            .height(40.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (accent) Ink.Green else Ink.Raised2)
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 18.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = null, tint = p.onAccent, modifier = Modifier.size(22.dp))
+        Text(label, fontFamily = ArchivoWide, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink.Text)
+    }
+}
+
+/** The rounded graphite panel settings and lists sit in. */
+fun Modifier.panel(): Modifier = this.clip(RoundedCornerShape(22.dp)).background(Ink.Raised)
+
+@Composable
+fun SettingRow(
+    icon: ImageVector,
+    label: String,
+    color: Color = Ink.Text,
+    trailing: (@Composable () -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(role = Role.Button, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 15.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(21.dp))
+        Spacer(Modifier.width(14.dp))
+        Text(label, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = color, modifier = Modifier.weight(1f))
+        trailing?.invoke()
     }
 }
 
 @Composable
-fun CountBadge(count: String, modifier: Modifier = Modifier, ring: Color? = null) {
-    val p = LocalPalette.current
-    Box(
-        modifier
-            .defaultMinSize(minWidth = 22.dp, minHeight = 22.dp)
-            .then(if (ring != null) Modifier.border(2.dp, ring, RoundedCornerShape(11.dp)) else Modifier)
-            .clip(RoundedCornerShape(11.dp))
-            .background(p.accent)
-            .padding(horizontal = 6.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(count, color = p.onAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = Geist)
+fun RowDivider() {
+    Box(Modifier.padding(start = 51.dp).fillMaxWidth().height(1.dp).background(Ink.Line2))
+}
+
+@Composable
+fun DangerRow(icon: ImageVector, label: String, onClick: () -> Unit) = SettingRow(icon, label, color = Ink.Danger, onClick = onClick)
+
+/** The four bubble colors as tappable swatches. */
+@Composable
+fun BubbleSwatches(selected: String, onPick: (String) -> Unit, ring: Color = Ink.Raised) {
+    Row {
+        BubbleColors.forEach { c ->
+            val on = c.name == selected
+            Box(
+                Modifier
+                    .size(width = 38.dp, height = 44.dp)
+                    .clickable(role = Role.RadioButton) { onPick(c.name) }
+                    .semantics {
+                        contentDescription = c.name
+                        this.selected = on
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(if (on) Ink.Text else Color.Transparent)
+                        .padding(2.dp)
+                        .clip(CircleShape)
+                        .background(if (on) ring else Color.Transparent)
+                        .padding(2.dp)
+                        .clip(CircleShape)
+                        .background(c.color),
+                )
+            }
+        }
     }
+}
+
+/** A voice message's bars. The shape is fixed per message; bars light up as it plays. */
+@Composable
+fun Waveform(seed: String, progress: Float, color: Color, modifier: Modifier = Modifier) {
+    val bars = remember(seed) { waveBars(seed, 28) }
+    Canvas(modifier) {
+        val step = size.width / bars.size
+        val barW = step * 0.52f
+        bars.forEachIndexed { i, h ->
+            val barH = size.height * h
+            val played = (i + 0.5f) / bars.size <= progress
+            drawRoundRect(
+                color = color.copy(alpha = if (played) 1f else 0.45f),
+                topLeft = Offset(i * step, (size.height - barH) / 2f),
+                size = Size(barW, barH),
+                cornerRadius = CornerRadius(barW / 2f),
+            )
+        }
+    }
+}
+
+private fun waveBars(seed: String, n: Int): List<Float> {
+    val r = java.util.Random(seed.hashCode().toLong())
+    return List(n) { i ->
+        val envelope = 0.55f + 0.45f * sin(i / (n - 1f) * PI).toFloat()
+        ((0.25f + 0.75f * r.nextFloat()) * envelope).coerceIn(0.2f, 1f)
+    }
+}
+
+/** "0:07", "1:42". */
+fun formatDuration(ms: Int): String {
+    val total = (ms.coerceAtLeast(0) + 500) / 1000
+    return "%d:%02d".format(total / 60, total % 60)
+}
+
+/** Ids of the chats where someone is typing right now. Updates when an indicator runs out. */
+@Composable
+fun rememberTypingIds(): Set<String> {
+    val typing by Engine.typing.collectAsState()
+    var tick by remember { mutableIntStateOf(0) }
+    val now = remember(typing, tick) { System.currentTimeMillis() }
+    LaunchedEffect(typing, tick) {
+        val next = typing.values.flatMap { it.values }.filter { it > System.currentTimeMillis() }.minOrNull()
+            ?: return@LaunchedEffect
+        delay(next - System.currentTimeMillis() + 50)
+        tick++
+    }
+    return remember(typing, now) { typing.filterValues { m -> m.values.any { it > now } }.keys }
 }
 
 /** "8:41 AM", "Yesterday", "Sunday", or a short date. */

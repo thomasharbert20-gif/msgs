@@ -33,19 +33,31 @@ object MsgsIcons {
     private const val CIRCLE_R2 = "a2 2 0 1 1 -4 0a2 2 0 1 1 4 0z"
 
     val Back = stroke("back", 2.4f, "M15 5l-7 7 7 7")
-    val Chevron = stroke("chevron", 2.2f, "M9 5l7 7 -7 7")
+    val Chevron = stroke("chevron", 3f, "M9 6l6 6 -6 6")
     val Search = stroke("search", 2.2f, "M18 11a7 7 0 1 1 -14 0a7 7 0 1 1 14 0", "M20 20l-3.5 -3.5")
     val Compose = stroke("compose", 2.2f, "M4 20h4L19 9l-4 -4L4 16v4z", "M13.5 6.5l4 4")
-    val Plus = stroke("plus", 2.3f, "M12 5v14", "M5 12h14")
+    val NewMessage = stroke(
+        "newMessage", 2.3f,
+        "M12 4H6a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2 -2v-6",
+        "M17.5 3.5a2.1 2.1 0 0 1 3 3L13 14l-4 1 1 -4z",
+    )
+    val Plus = stroke("plus", 2.2f, "M12 5v14", "M5 12h14")
     val Send = stroke("send", 2.6f, "M12 19V5", "M6 11l6 -6 6 6")
     val Camera = stroke("camera", 2f, "M4 8h3l2 -3h6l2 3h3v11H4z", "M15.5 13a3.5 3.5 0 1 1 -7 0a3.5 3.5 0 1 1 7 0")
+    val Mic = stroke("mic", 2.2f, "M9 6a3 3 0 0 1 6 0v5a3 3 0 0 1 -6 0z", "M5 11a7 7 0 0 0 14 0", "M12 18v3")
     val Filter = stroke("filter", 2f, "M4 7h16", "M7 12h10", "M10 17h4")
-    val Phone = stroke("phone", 2f, "M5 4h4l2 5 -2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1 -1 1A16 16 0 0 1 4 5a1 1 0 0 1 1 -1")
+    val Phone = stroke(
+        "phone", 2f,
+        "M6.6 3h3.1l1.6 4.4 -2 1.4a12 12 0 0 0 5.9 5.9l1.4 -2 4.4 1.6v3.1a2 2 0 0 1 -2.2 2A17 17 0 0 1 4.6 5.2A2 2 0 0 1 6.6 3z",
+    )
+    val Message = stroke("message", 2f, "M5 18l-1 3 4 -1.5A9 9 0 1 0 5 18z")
+    val Person = stroke("person", 2f, "M16 8a4 4 0 1 1 -8 0a4 4 0 1 1 8 0", "M4 21a8 8 0 0 1 16 0")
     val Bell = stroke("bell", 2f, "M6 16V11a6 6 0 0 1 12 0v5l2 2H4z", "M10 21h4")
     val BellOff = stroke("bellOff", 2f, "M6 16V11a6 6 0 0 1 9.6 -4.8", "M18 11v5l2 2H8", "M10 21h4", "M4 4l16 16")
     val Pin = stroke("pin", 2f, "M9 4h6l-1 6 4 3v2H6v-2l4 -3z", "M12 15v6")
     val Image = stroke("image", 2f, "M6 5h12a3 3 0 0 1 3 3v8a3 3 0 0 1 -3 3H6a3 3 0 0 1 -3 -3V8a3 3 0 0 1 3 -3z", "M11 10a2 2 0 1 1 -4 0a2 2 0 1 1 4 0", "M21 16l-5 -5 -8 8")
     val Block = stroke("block", 2f, "M20.5 12a8.5 8.5 0 1 1 -17 0a8.5 8.5 0 1 1 17 0", "M6 6l12 12")
+    val Check = stroke("check", 2.4f, "M5 12.5l4.5 4.5L19 7.5")
     val DoubleCheck = stroke("doubleCheck", 2.2f, "M2 13l4 4 8 -9", "M10 15l2 2 9 -10")
     val Close = stroke("close", 2.3f, "M6 6l12 12", "M18 6L6 18")
     val Reply = stroke("reply", 2f, "M9 14L4 9l5 -5", "M4 9h10a6 6 0 0 1 6 6v4")
@@ -57,6 +69,7 @@ object MsgsIcons {
     val Download = stroke("download", 2f, "M12 4v12", "M6 11l6 6 6 -6", "M5 20h14")
     val Info = stroke("info", 2f, "M21 12a9 9 0 1 1 -18 0a9 9 0 1 1 18 0", "M12 11v6", "M12 7.5v0.5")
     val Play = filled("play", "M8 5.5v13a1 1 0 0 0 1.5 0.9l10 -6.5a1 1 0 0 0 0 -1.8l-10 -6.5A1 1 0 0 0 8 5.5z")
+    val Pause = filled("pause", "M7 5h3.5v14H7z", "M13.5 5H17v14h-3.5z")
     val File = stroke("file", 2f, "M7 3h7l5 5v13H7z", "M14 3v5h5")
     val Key = stroke("key", 2f, "M10 14a4 4 0 1 1 3.5 -2", "M13.5 12H21v3", "M18 12v3")
     val Unlink = stroke("unlink", 2f, "M9 15l-2 2a3 3 0 0 1 -4 -4l3 -3a3 3 0 0 1 4 0", "M15 9l2 -2a3 3 0 0 1 4 4l-3 3a3 3 0 0 1 -4 0", "M4 4l16 16")

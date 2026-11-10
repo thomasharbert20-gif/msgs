@@ -55,15 +55,10 @@ import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import com.msgs.app.engine.Engine
 import com.msgs.app.notify.Notifications
-import com.msgs.app.ui.theme.Danger
-import com.msgs.app.ui.theme.Geist
-import com.msgs.app.ui.theme.LocalPalette
-import com.msgs.app.ui.theme.TextPrimary
-import com.msgs.app.ui.theme.TextSecondary
-import com.msgs.app.ui.theme.TextTertiary
-import com.msgs.app.ui.theme.TitleFont
-import com.msgs.app.ui.theme.barGlass
-import com.msgs.app.ui.theme.glass
+import com.msgs.app.ui.theme.Archivo
+import com.msgs.app.ui.theme.ArchivoExpanded
+import com.msgs.app.ui.theme.ArchivoWide
+import com.msgs.app.ui.theme.Ink
 import gmbridge.Gmbridge
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -109,7 +104,6 @@ fun PairingScreen() {
 
 @Composable
 private fun Intro(onStart: () -> Unit, onPaste: (String) -> Unit) {
-    val p = LocalPalette.current
     var showPaste by remember { mutableStateOf(false) }
     var pasted by remember { mutableStateOf("") }
     var pasteError by remember { mutableStateOf<String?>(null) }
@@ -122,14 +116,22 @@ private fun Intro(onStart: () -> Unit, onPaste: (String) -> Unit) {
             .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp),
     ) {
-        Spacer(Modifier.height(48.dp))
-        Text("MESSAGES", fontFamily = TitleFont, fontSize = 52.sp, letterSpacing = 0.5.sp, color = TextPrimary)
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(56.dp))
+        Text(
+            "Messages",
+            fontFamily = ArchivoExpanded,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 48.sp,
+            lineHeight = 52.sp,
+            letterSpacing = (-0.5).sp,
+            color = Ink.Text,
+        )
+        Spacer(Modifier.height(12.dp))
         Text(
             "Msgs runs on top of Google Messages, the same way Messages for web does. Google Messages keeps doing the RCS work in the background; you just never have to open it.",
             fontSize = 16.sp,
             lineHeight = 23.sp,
-            color = TextSecondary,
+            color = Ink.Text2,
         )
         Spacer(Modifier.height(28.dp))
         Step(1, "Sign in to Google", "Use the same account Google Messages on this phone is signed in to.")
@@ -141,16 +143,16 @@ private fun Intro(onStart: () -> Unit, onPaste: (String) -> Unit) {
                 .fillMaxWidth()
                 .height(56.dp)
                 .clip(RoundedCornerShape(28.dp))
-                .background(p.accent)
+                .background(Ink.Green)
                 .clickable(role = Role.Button, onClick = onStart),
             contentAlignment = Alignment.Center,
         ) {
-            Text("Sign in with Google", color = p.onAccent, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text("Sign in with Google", color = Ink.Text, fontFamily = ArchivoWide, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
         }
         Spacer(Modifier.height(18.dp))
         Text(
             if (showPaste) "Hide manual sign-in" else "Google won't let me sign in",
-            color = TextSecondary,
+            color = Ink.Text2,
             fontSize = 14.sp,
             fontWeight = FontWeight.Medium,
             textAlign = TextAlign.Center,
@@ -161,27 +163,32 @@ private fun Intro(onStart: () -> Unit, onPaste: (String) -> Unit) {
                 "Sign in at messages.google.com/web on a computer, open the browser's developer tools, and copy the Cookie header from any request to messages.google.com. Paste it here.",
                 fontSize = 13.sp,
                 lineHeight = 19.sp,
-                color = TextTertiary,
+                color = Ink.Text3,
                 modifier = Modifier.padding(vertical = 8.dp),
             )
             Box(
-                Modifier.fillMaxWidth().heightIn(min = 90.dp).barGlass(RoundedCornerShape(20.dp)).padding(14.dp),
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 90.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Ink.Raised)
+                    .padding(14.dp),
             ) {
                 BasicTextField(
                     value = pasted,
                     onValueChange = { pasted = it; pasteError = null },
-                    textStyle = TextStyle(fontFamily = Geist, fontSize = 13.sp, color = TextPrimary),
-                    cursorBrush = SolidColor(p.accent),
+                    textStyle = TextStyle(fontFamily = Archivo, fontSize = 13.sp, color = Ink.Text),
+                    cursorBrush = SolidColor(Ink.GreenText),
                     modifier = Modifier.fillMaxWidth(),
                     decorationBox = { inner ->
                         Box {
-                            if (pasted.isEmpty()) Text("SID=…; HSID=…; SSID=…", fontSize = 13.sp, color = TextTertiary)
+                            if (pasted.isEmpty()) Text("SID=…; HSID=…; SSID=…", fontSize = 13.sp, color = Ink.Text3)
                             inner()
                         }
                     },
                 )
             }
-            pasteError?.let { Text(it, color = Danger, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)) }
+            pasteError?.let { Text(it, color = Ink.Danger, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp)) }
             Spacer(Modifier.height(10.dp))
             PillButton("Pair with these cookies", accent = pasted.isNotBlank()) {
                 val json = cookiesFromText(pasted)
@@ -195,15 +202,14 @@ private fun Intro(onStart: () -> Unit, onPaste: (String) -> Unit) {
 
 @Composable
 private fun Step(n: Int, title: String, body: String) {
-    val p = LocalPalette.current
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Box(Modifier.size(30.dp).glass(CircleShape), contentAlignment = Alignment.Center) {
-            Text(n.toString(), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = p.accent)
+        Box(Modifier.size(32.dp).clip(CircleShape).background(Ink.Raised), contentAlignment = Alignment.Center) {
+            Text(n.toString(), fontFamily = ArchivoWide, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = Ink.GreenText)
         }
         Spacer(Modifier.width(14.dp))
         Column {
-            Text(title, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            Text(body, fontSize = 14.sp, lineHeight = 20.sp, color = TextSecondary)
+            Text(title, fontFamily = ArchivoWide, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text(body, fontSize = 14.sp, lineHeight = 20.sp, color = Ink.Text2)
         }
     }
 }
@@ -237,10 +243,10 @@ private fun GoogleSignIn(onCookies: (String) -> Unit, onCancel: () -> Unit) {
 
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            GlassIconButton(MsgsIcons.Back, "Back", onCancel)
+            CircleIcon(MsgsIcons.Back, "Back", onCancel)
             Spacer(Modifier.width(12.dp))
-            Text("Sign in to Google", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            if (loading) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = TextSecondary)
+            Text("Sign in to Google", fontFamily = ArchivoWide, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+            if (loading) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = Ink.Text2)
         }
         Box(
             Modifier
@@ -299,28 +305,27 @@ private fun GoogleSignIn(onCookies: (String) -> Unit, onCancel: () -> Unit) {
 @Composable
 private fun EmojiStep(emoji: String, onCancel: () -> Unit) {
     val context = LocalContext.current
-    val p = LocalPalette.current
     Column(
         Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
         if (emoji.isEmpty()) {
-            CircularProgressIndicator(color = p.accent)
+            CircularProgressIndicator(color = Ink.GreenText)
             Spacer(Modifier.height(20.dp))
-            Text("Connecting to your Google account…", fontSize = 16.sp, color = TextSecondary)
+            Text("Connecting to your Google account…", fontSize = 16.sp, color = Ink.Text2)
         } else {
-            Box(Modifier.size(150.dp).glass(CircleShape), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(150.dp).clip(CircleShape).background(Ink.Raised), contentAlignment = Alignment.Center) {
                 Text(emoji, fontSize = 84.sp)
             }
             Spacer(Modifier.height(28.dp))
-            Text("Tap this emoji in Google Messages", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+            Text("Tap this emoji in Google Messages", fontFamily = ArchivoWide, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
             Spacer(Modifier.height(10.dp))
             Text(
                 "Google Messages on this phone is asking you to confirm. Open it, pick the same emoji, and come back here.",
                 fontSize = 15.sp,
                 lineHeight = 22.sp,
-                color = TextSecondary,
+                color = Ink.Text2,
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(24.dp))
@@ -329,13 +334,13 @@ private fun EmojiStep(emoji: String, onCancel: () -> Unit) {
             }
             Spacer(Modifier.height(16.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = TextSecondary)
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Ink.Text2)
                 Spacer(Modifier.width(10.dp))
-                Text("Waiting for you to tap it…", fontSize = 14.sp, color = TextTertiary)
+                Text("Waiting for you to tap it…", fontSize = 14.sp, color = Ink.Text3)
             }
         }
         Spacer(Modifier.height(28.dp))
-        Text("Cancel", color = TextSecondary, fontSize = 15.sp, modifier = Modifier.clickable(onClick = onCancel).padding(10.dp))
+        Text("Cancel", color = Ink.Text2, fontSize = 15.sp, modifier = Modifier.clickable(onClick = onCancel).padding(10.dp))
     }
 }
 
@@ -346,12 +351,12 @@ private fun Failed(message: String, onRetry: () -> Unit, onBack: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("Pairing didn't finish", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+        Text("Pairing didn't finish", fontFamily = ArchivoWide, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.height(10.dp))
-        Text(message, fontSize = 15.sp, lineHeight = 22.sp, color = TextSecondary, textAlign = TextAlign.Center)
+        Text(message, fontSize = 15.sp, lineHeight = 22.sp, color = Ink.Text2, textAlign = TextAlign.Center)
         Spacer(Modifier.height(24.dp))
         PillButton("Try again", accent = true, onClick = onRetry)
         Spacer(Modifier.height(10.dp))
-        Text("Back", color = TextSecondary, fontSize = 15.sp, modifier = Modifier.clickable(onClick = onBack).padding(10.dp))
+        Text("Back", color = Ink.Text2, fontSize = 15.sp, modifier = Modifier.clickable(onClick = onBack).padding(10.dp))
     }
 }

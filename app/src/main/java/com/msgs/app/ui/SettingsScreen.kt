@@ -6,9 +6,6 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -28,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -44,13 +42,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -65,16 +59,10 @@ import com.msgs.app.BuildConfig
 import com.msgs.app.data.Prefs
 import com.msgs.app.engine.Engine
 import com.msgs.app.notify.Notifications
-import com.msgs.app.ui.theme.Danger
-import com.msgs.app.ui.theme.Geist
-import com.msgs.app.ui.theme.LocalPalette
-import com.msgs.app.ui.theme.Palettes
-import com.msgs.app.ui.theme.TextPrimary
-import com.msgs.app.ui.theme.TextSecondary
-import com.msgs.app.ui.theme.TextTertiary
-import com.msgs.app.ui.theme.TitleFont
-import com.msgs.app.ui.theme.barGlass
-import com.msgs.app.ui.theme.glass
+import com.msgs.app.ui.theme.Archivo
+import com.msgs.app.ui.theme.ArchivoExpanded
+import com.msgs.app.ui.theme.ArchivoWide
+import com.msgs.app.ui.theme.Ink
 import com.msgs.app.update.TokenStore
 import com.msgs.app.update.Updater
 import com.msgs.app.util.CrashLog
@@ -83,10 +71,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val p = LocalPalette.current
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
-    val paletteName by Prefs.palette.collectAsState()
+    val bubbleDefault by Prefs.bubbleDefault.collectAsState()
     val relay by Prefs.relay.collectAsState()
     val update by Updater.state.collectAsState()
     val status by Engine.status.collectAsState()
@@ -101,74 +88,71 @@ fun SettingsScreen(onBack: () -> Unit) {
     var token by remember { mutableStateOf("") }
     var hasToken by remember { mutableStateOf(TokenStore.has(context)) }
     var confirmUnpair by remember { mutableStateOf(false) }
+    val switchColors = SwitchDefaults.colors(
+        checkedTrackColor = Ink.Green,
+        checkedThumbColor = Ink.Text,
+        uncheckedTrackColor = Ink.Raised2,
+        uncheckedThumbColor = Ink.Text3,
+        uncheckedBorderColor = Ink.Line2,
+    )
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 40.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(Ink.Bg), contentPadding = PaddingValues(bottom = 40.dp)) {
         item {
-            Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                GlassIconButton(MsgsIcons.Back, "Back", onBack)
-                Spacer(Modifier.width(12.dp))
-                Text("SETTINGS", fontFamily = TitleFont, fontSize = 34.sp, letterSpacing = 0.5.sp, color = TextPrimary)
+            Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 16.dp, top = 10.dp)) {
+                CircleIcon(MsgsIcons.Back, "Back", onBack)
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Settings",
+                    fontFamily = ArchivoExpanded,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 40.sp,
+                    lineHeight = 44.sp,
+                    letterSpacing = (-0.5).sp,
+                    color = Ink.Text,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
             }
         }
 
         item {
-            Section("Look") {
-                Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    Palettes.forEach { pal ->
-                        val selected = pal.name == paletteName
-                        Column(
-                            Modifier.clip(RoundedCornerShape(16.dp)).clickable(role = Role.RadioButton) { Prefs.setPalette(pal.name) }.padding(8.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(58.dp)
-                                    .border(if (selected) 2.dp else 1.dp, if (selected) pal.accent else Color.White.copy(alpha = 0.15f), CircleShape)
-                                    .padding(4.dp)
-                                    .clip(CircleShape)
-                                    .background(Brush.linearGradient(listOf(pal.glow1.copy(alpha = 1f), pal.top, pal.bottom), start = Offset.Zero, end = Offset.Infinite)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Box(Modifier.size(16.dp).clip(CircleShape).background(pal.accent))
-                            }
-                            Spacer(Modifier.height(6.dp))
-                            Text(pal.name, fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, color = if (selected) TextPrimary else TextSecondary)
-                        }
-                    }
+            Section("Your bubbles") {
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(MsgsIcons.Bubble, contentDescription = null, tint = Ink.Text, modifier = Modifier.size(21.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Text("Bubble color", fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                    BubbleSwatches(bubbleDefault, onPick = { Prefs.setBubbleDefault(it) })
                 }
+                Hint("Applies to every chat. You can give a chat its own color from its contact page.")
             }
         }
 
         item {
             Section("Notifications") {
                 SettingRow(MsgsIcons.Bell, "Msgs notifications", trailing = {
-                    Text(if (listenerOn) "On" else "Turn on", color = if (listenerOn) TextSecondary else p.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        if (listenerOn) "On" else "Turn on",
+                        color = if (listenerOn) Ink.Text2 else Ink.GreenText,
+                        fontFamily = ArchivoWide,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }, onClick = { Notifications.openListenerSettings(context) })
                 RowDivider()
                 SettingRow(MsgsIcons.BellOff, "Silence Google Messages alerts", onClick = { Notifications.openGoogleMessagesNotificationSettings(context) })
                 RowDivider()
                 SettingRow(MsgsIcons.Bubble, "Take over Google Messages alerts", trailing = {
-                    Switch(
-                        checked = relay,
-                        onCheckedChange = { Prefs.setRelay(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedTrackColor = p.accent,
-                            checkedThumbColor = Color.White,
-                            uncheckedTrackColor = Color.White.copy(alpha = 0.1f),
-                            uncheckedBorderColor = Color.Transparent,
-                        ),
-                    )
+                    Switch(checked = relay, onCheckedChange = { Prefs.setRelay(it) }, colors = switchColors)
                 }, onClick = { Prefs.setRelay(!relay) })
                 if (!postAllowed) {
                     RowDivider()
-                    SettingRow(MsgsIcons.Info, "Allow Msgs to show notifications", color = p.accent, onClick = {
+                    SettingRow(MsgsIcons.Info, "Allow Msgs to show notifications", color = Ink.GreenText, onClick = {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) askPost.launch(Manifest.permission.POST_NOTIFICATIONS)
                     })
                 }
-                Hint("Turn on access so Msgs can replace Google Messages' notifications. Then set Google Messages' notifications to silent, so you only hear Msgs.")
+                Hint("Turn on access so Msgs can replace Google Messages' notifications. Then set Google Messages' notifications to Silent, not Off, so you only hear Msgs.")
             }
         }
 
@@ -188,7 +172,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 is Updater.State.Failed -> s.message
                             },
                             fontSize = 13.sp,
-                            color = if (update is Updater.State.Failed) Danger else TextSecondary,
+                            color = if (update is Updater.State.Failed) Ink.Danger else Ink.Text2,
                         )
                     }
                     Spacer(Modifier.width(12.dp))
@@ -210,15 +194,15 @@ fun SettingsScreen(onBack: () -> Unit) {
                 (update as? Updater.State.Downloading)?.let {
                     LinearProgressIndicator(
                         progress = { it.progress },
-                        color = p.accent,
-                        trackColor = Color.White.copy(alpha = 0.1f),
+                        color = Ink.GreenText,
+                        trackColor = Ink.Raised2,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
                 RowDivider()
                 if (hasToken) {
                     SettingRow(MsgsIcons.Key, "GitHub token saved", trailing = {
-                        Text("Remove", color = Danger, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Remove", color = Ink.Danger, fontFamily = ArchivoWide, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     }, onClick = {
                         TokenStore.clear(context)
                         hasToken = false
@@ -226,7 +210,12 @@ fun SettingsScreen(onBack: () -> Unit) {
                 } else {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Box(
-                            Modifier.weight(1f).height(46.dp).barGlass(RoundedCornerShape(23.dp)).padding(horizontal = 16.dp),
+                            Modifier
+                                .weight(1f)
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(23.dp))
+                                .background(Ink.Raised2)
+                                .padding(horizontal = 16.dp),
                             contentAlignment = Alignment.CenterStart,
                         ) {
                             BasicTextField(
@@ -235,12 +224,12 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 singleLine = true,
                                 visualTransformation = PasswordVisualTransformation(),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                                textStyle = TextStyle(fontFamily = Geist, fontSize = 15.sp, color = TextPrimary),
-                                cursorBrush = SolidColor(p.accent),
+                                textStyle = TextStyle(fontFamily = Archivo, fontSize = 15.sp, color = Ink.Text),
+                                cursorBrush = SolidColor(Ink.GreenText),
                                 modifier = Modifier.fillMaxWidth(),
                                 decorationBox = { inner ->
                                     Box {
-                                        if (token.isEmpty()) Text("GitHub token (optional)", fontSize = 15.sp, color = TextTertiary)
+                                        if (token.isEmpty()) Text("GitHub token (optional)", fontSize = 15.sp, color = Ink.Text3)
                                         inner()
                                     }
                                 },
@@ -264,7 +253,7 @@ fun SettingsScreen(onBack: () -> Unit) {
         item {
             Section("Connection") {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(if (status.state == "connected") p.accent else Color(0xFFF2C14E)))
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(if (status.state == "connected") Ink.GreenText else Ink.Warn))
                     Spacer(Modifier.width(12.dp))
                     Text(
                         when (status.state) {
@@ -277,11 +266,14 @@ fun SettingsScreen(onBack: () -> Unit) {
                         fontSize = 15.sp,
                         modifier = Modifier.weight(1f),
                     )
-                    if (status.state == "inactive") PillButton("Use here", accent = true) { Engine.setActiveHere() }
-                    else if (status.state != "connected") PillButton("Retry") { Engine.connect() }
+                    if (status.state == "inactive") {
+                        PillButton("Use here", accent = true) { Engine.setActiveHere() }
+                    } else if (status.state != "connected") {
+                        PillButton("Retry") { Engine.connect() }
+                    }
                 }
                 RowDivider()
-                SettingRow(MsgsIcons.Unlink, "Unpair from Google Messages", color = Danger, onClick = { confirmUnpair = true })
+                DangerRow(MsgsIcons.Unlink, "Unpair from Google Messages") { confirmUnpair = true }
             }
         }
 
@@ -313,38 +305,29 @@ fun SettingsScreen(onBack: () -> Unit) {
             title = { Text("Unpair Msgs?") },
             text = { Text("Msgs will disconnect from Google Messages. You can pair again any time.") },
             confirmButton = {
-                TextButton(onClick = { confirmUnpair = false; Engine.unpair() }) { Text("Unpair", color = Danger) }
+                TextButton(onClick = { confirmUnpair = false; Engine.unpair() }) { Text("Unpair", color = Ink.Danger) }
             },
-            dismissButton = { TextButton(onClick = { confirmUnpair = false }) { Text("Cancel", color = TextPrimary) } },
+            dismissButton = { TextButton(onClick = { confirmUnpair = false }) { Text("Cancel", color = Ink.Text) } },
         )
     }
 }
 
 @Composable
 private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 18.dp)) {
-        Text(title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = TextSecondary, modifier = Modifier.padding(start = 6.dp, bottom = 8.dp))
-        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(24.dp), fill = 0.08f, edge = 0.1f), content = content)
+    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 22.dp)) {
+        Text(
+            title,
+            fontFamily = ArchivoWide,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = Ink.Text2,
+            modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
+        )
+        Column(Modifier.fillMaxWidth().panel(), content = content)
     }
 }
 
 @Composable
 private fun Hint(text: String) {
-    Text(text, fontSize = 13.sp, color = TextTertiary, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 14.dp))
-}
-
-@Composable
-fun PillButton(label: String, accent: Boolean = false, onClick: () -> Unit) {
-    val p = LocalPalette.current
-    Box(
-        Modifier
-            .height(38.dp)
-            .clip(RoundedCornerShape(19.dp))
-            .background(if (accent) p.accent else Color.White.copy(alpha = 0.12f))
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (accent) p.onAccent else TextPrimary)
-    }
+    Text(text, fontSize = 13.sp, lineHeight = 18.sp, color = Ink.Text3, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 14.dp))
 }

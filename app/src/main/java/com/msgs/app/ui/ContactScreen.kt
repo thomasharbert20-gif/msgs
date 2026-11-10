@@ -1,14 +1,15 @@
 package com.msgs.app.ui
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.ContactsContract
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,7 +21,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -31,8 +31,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -51,6 +49,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,25 +58,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.msgs.app.data.Prefs
 import com.msgs.app.engine.AvatarRepo
+import com.msgs.app.engine.Conversation
 import com.msgs.app.engine.Engine
 import com.msgs.app.engine.Media
 import com.msgs.app.engine.MediaRepo
 import com.msgs.app.notify.Notifications
-import com.msgs.app.ui.theme.Danger
-import com.msgs.app.ui.theme.LocalPalette
-import com.msgs.app.ui.theme.TextPrimary
-import com.msgs.app.ui.theme.TextSecondary
-import com.msgs.app.ui.theme.glass
-import com.msgs.app.ui.theme.nameStyle
+import com.msgs.app.ui.theme.ArchivoExpanded
+import com.msgs.app.ui.theme.ArchivoWide
+import com.msgs.app.ui.theme.Ink
 import kotlinx.coroutines.launch
 
 @Composable
 fun ContactScreen(convId: String, onBack: () -> Unit) {
     val context = LocalContext.current
-    val p = LocalPalette.current
     val scope = rememberCoroutineScope()
     val conv = Engine.conversations.collectAsState().value[convId]
     val pins by Prefs.pins.collectAsState()
+    val bubbles by Prefs.bubbles.collectAsState()
+    val bubbleDefault by Prefs.bubbleDefault.collectAsState()
     val messages = Engine.messages.collectAsState().value[convId].orEmpty()
     val version by AvatarRepo.version.collectAsState()
     val key = remember(conv?.id, conv?.groupAvatarUrl) { AvatarRepo.keyFor(conv) }
@@ -91,56 +90,50 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
     val dialNumber = conv?.other?.let { it.rawNumber.ifBlank { it.number } }
     val media = remember(messages) { messages.flatMap { it.media }.filter { it.isImage || it.isVideo }.reversed() }
     val pinned = convId in pins
+    val bubble = bubbles[convId] ?: bubbleDefault
+    val isPerson = conv?.isGroup == false && !dialNumber.isNullOrBlank()
 
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 36.dp)) {
+    LazyColumn(Modifier.fillMaxSize().background(Ink.Bg), contentPadding = PaddingValues(bottom = 36.dp)) {
         item {
-            Row(
-                Modifier.fillMaxWidth().statusBarsPadding().padding(start = 16.dp, end = 16.dp, top = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                GlassIconButton(MsgsIcons.Back, "Back to chat", onBack)
-            }
+            Poster(
+                conv = conv,
+                onBack = onBack,
+                onEdit = if (isPerson) ({ editContact(context, dialNumber.orEmpty(), conv?.title.orEmpty()) }) else null,
+                onPhoto = pickPhoto,
+                photoLabel = if (hasCustom) "Change photo" else "Choose a photo",
+            )
         }
         item {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.size(124.dp)) {
-                    Avatar(conv, 124.dp, modifier = Modifier.border(1.dp, Color.White.copy(alpha = 0.14f), CircleShape))
-                    Box(
-                        Modifier
-                            .align(Alignment.BottomEnd)
-                            .offset(x = 2.dp, y = (-2).dp)
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(p.top)
-                            .padding(3.dp)
-                            .clip(CircleShape)
-                            .background(p.accent)
-                            .clickable(role = Role.Button, onClick = pickPhoto),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(MsgsIcons.Camera, contentDescription = "Choose a photo", tint = p.onAccent, modifier = Modifier.size(18.dp))
-                    }
-                }
-                Spacer(Modifier.height(14.dp))
-                Text(conv?.title.orEmpty(), style = nameStyle(30), textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (!number.isNullOrBlank()) {
-                    Text(number, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TextSecondary)
-                } else if (conv?.isGroup == true) {
-                    Text("${conv.others.size + 1} people", fontSize = 15.sp, fontWeight = FontWeight.Medium, color = TextSecondary)
+            Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp)) {
+                Text(
+                    conv?.title.orEmpty(),
+                    fontFamily = ArchivoExpanded,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 36.sp,
+                    lineHeight = 40.sp,
+                    letterSpacing = (-0.5).sp,
+                    color = Ink.Text,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(6.dp))
+                when {
+                    !number.isNullOrBlank() -> Text(number, fontSize = 15.sp, color = Ink.Text2)
+                    conv?.isGroup == true -> Text("${conv.others.size + 1} people", fontSize = 15.sp, color = Ink.Text2)
                 }
             }
         }
         item {
             Row(
-                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 22.dp),
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 18.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (conv?.isGroup == false && !dialNumber.isNullOrBlank()) {
+                ActionTile(MsgsIcons.Message, "Message", Modifier.weight(1f), accent = true, onClick = onBack)
+                if (isPerson) {
                     ActionTile(MsgsIcons.Phone, "Call", Modifier.weight(1f)) {
                         runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$dialNumber"))) }
                     }
                 }
-                ActionTile(MsgsIcons.Bubble, "Message", Modifier.weight(1f), onClick = onBack)
                 Box(Modifier.weight(1f)) {
                     ActionTile(MsgsIcons.BellOff, "Mute", Modifier.fillMaxWidth()) { muteMenu = true }
                     DropdownMenu(expanded = muteMenu, onDismissRequest = { muteMenu = false }) {
@@ -153,22 +146,26 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
         }
         if (media.isNotEmpty()) {
             item {
-                Column(
-                    Modifier
-                        .padding(start = 16.dp, end = 16.dp, top = 14.dp)
-                        .fillMaxWidth()
-                        .glass(RoundedCornerShape(24.dp), fill = 0.08f, edge = 0.1f)
-                        .padding(14.dp),
-                ) {
-                    Text("Photos and media", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 2.dp, bottom = 12.dp))
+                Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 24.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Photos and media", fontFamily = ArchivoWide, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                        Text(media.size.toString(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Ink.Text3)
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         media.take(4).forEachIndexed { i, m ->
-                            Box(Modifier.weight(1f).aspectRatio(1f).clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.06f)).clickable { if (m.isImage) viewer = m }) {
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .aspectRatio(1f)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(Ink.Raised)
+                                    .clickable { if (m.isImage) viewer = m },
+                            ) {
                                 val bmp by produceState<ImageBitmap?>(null, m.cacheKey) { value = MediaRepo.thumbnail(m) }
                                 bmp?.let { Image(it, contentDescription = "Photo", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                                 if (i == 3 && media.size > 4) {
-                                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)), contentAlignment = Alignment.Center) {
-                                        Text("+${media.size - 4}", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
+                                        Text("+${media.size - 4}", fontFamily = ArchivoWide, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
                                     }
                                 }
                             }
@@ -179,33 +176,24 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
             }
         }
         item {
-            Column(
-                Modifier
-                    .padding(start = 16.dp, end = 16.dp, top = 12.dp)
-                    .fillMaxWidth()
-                    .glass(RoundedCornerShape(24.dp), fill = 0.08f, edge = 0.1f),
-            ) {
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp).fillMaxWidth().panel()) {
                 SettingRow(MsgsIcons.Image, if (conv?.isGroup == true) "Group photo" else "Contact photo", trailing = {
-                    Text(if (hasCustom) "Change" else "Choose", color = p.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (hasCustom) "Change" else "Choose", color = Ink.GreenText, fontFamily = ArchivoWide, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }, onClick = pickPhoto)
                 if (hasCustom) {
                     RowDivider()
                     SettingRow(MsgsIcons.Close, "Remove my photo", onClick = { AvatarRepo.removeCustom(key) })
                 }
                 RowDivider()
-                SettingRow(MsgsIcons.Pin, "Pin to top", trailing = {
-                    Switch(
-                        checked = pinned,
-                        onCheckedChange = { Prefs.setPinned(convId, it) },
-                        colors = SwitchDefaults.colors(
-                            checkedTrackColor = p.accent,
-                            checkedThumbColor = Color.White,
-                            uncheckedTrackColor = Color.White.copy(alpha = 0.1f),
-                            uncheckedThumbColor = Color.White.copy(alpha = 0.7f),
-                            uncheckedBorderColor = Color.Transparent,
-                        ),
-                    )
-                }, onClick = { Prefs.setPinned(convId, !pinned) })
+                Row(
+                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(MsgsIcons.Bubble, contentDescription = null, tint = Ink.Text, modifier = Modifier.size(21.dp))
+                    Spacer(Modifier.width(14.dp))
+                    Text("Bubble color", fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                    BubbleSwatches(bubble, onPick = { Prefs.setBubble(convId, if (it == bubbleDefault) null else it) })
+                }
                 RowDivider()
                 SettingRow(MsgsIcons.Bell, "Notifications", onClick = {
                     runCatching {
@@ -225,22 +213,22 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
         }
         if (conv?.isGroup == true) {
             item {
-                Column(
-                    Modifier
-                        .padding(start = 16.dp, end = 16.dp, top = 12.dp)
-                        .fillMaxWidth()
-                        .glass(RoundedCornerShape(24.dp), fill = 0.08f, edge = 0.1f)
-                        .padding(vertical = 6.dp),
-                ) {
-                    Text("Members", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp))
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp).fillMaxWidth().panel().padding(vertical = 6.dp)) {
+                    Text(
+                        "Members",
+                        fontFamily = ArchivoWide,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 16.sp,
+                        modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 4.dp),
+                    )
                     conv.others.forEach { person ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Avatar(conv, 40.dp, person = person)
+                            Avatar(conv, 42.dp, person = person, ring = Ink.Raised)
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(person.displayName, style = nameStyle(16), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(person.displayName, fontFamily = ArchivoWide, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 if (person.name.isNotBlank() && person.number.isNotBlank()) {
-                                    Text(person.number, fontSize = 13.sp, color = TextSecondary)
+                                    Text(person.number, fontSize = 13.sp, color = Ink.Text2)
                                 }
                             }
                         }
@@ -250,11 +238,11 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
         }
         item {
             Text(
-                "Photos you choose here stay in Msgs and override the picture from your contacts.",
+                "Photos you choose here stay in Msgs and replace the picture from your contacts.",
                 fontSize = 13.sp,
-                color = TextSecondary,
+                color = Ink.Text3,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 18.dp),
             )
         }
     }
@@ -262,48 +250,96 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
     viewer?.let { ImageViewer(it) { viewer = null } }
 }
 
+/** The contact's photo as a full-width poster, with the photo button riding its bottom edge. */
 @Composable
-private fun ActionTile(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun Poster(
+    conv: Conversation?,
+    onBack: () -> Unit,
+    onEdit: (() -> Unit)?,
+    onPhoto: () -> Unit,
+    photoLabel: String,
+) {
+    val collage = rememberCollage(conv)
+    Box(Modifier.fillMaxWidth().height(392.dp)) {
+        Box(Modifier.fillMaxWidth().height(360.dp)) {
+            if (collage && conv != null) {
+                Box(Modifier.fillMaxSize().background(Ink.Mono), contentAlignment = Alignment.Center) {
+                    Avatar(conv, 160.dp, ring = Ink.Mono)
+                }
+            } else {
+                AvatarFill(conv, Modifier.fillMaxSize(), initialsSize = 96.sp)
+            }
+            Row(
+                Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircleIcon(MsgsIcons.Back, "Back to chat", onBack, background = Ink.Bg)
+                Spacer(Modifier.weight(1f))
+                if (onEdit != null) {
+                    Box(
+                        Modifier
+                            .height(44.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(Ink.Bg)
+                            .clickable(role = Role.Button, onClick = onEdit)
+                            .padding(horizontal = 18.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("Edit", fontFamily = ArchivoWide, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = Ink.Text)
+                    }
+                }
+            }
+        }
+        Box(
+            Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 20.dp)
+                .size(60.dp)
+                .clip(CircleShape)
+                .background(Ink.Bg)
+                .padding(4.dp)
+                .clip(CircleShape)
+                .background(Ink.Green)
+                .clickable(role = Role.Button, onClick = onPhoto)
+                .semantics { contentDescription = photoLabel },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(MsgsIcons.Camera, contentDescription = null, tint = Ink.Text, modifier = Modifier.size(23.dp))
+        }
+    }
+}
+
+/** Opens the phone's Contacts app to add or edit this number. */
+private fun editContact(context: Context, number: String, name: String) {
+    runCatching {
+        context.startActivity(
+            Intent(Intent.ACTION_INSERT_OR_EDIT)
+                .setType(ContactsContract.Contacts.CONTENT_ITEM_TYPE)
+                .putExtra(ContactsContract.Intents.Insert.PHONE, number)
+                .apply { if (name.isNotBlank() && name.none { it.isDigit() }) putExtra(ContactsContract.Intents.Insert.NAME, name) }
+        )
+    }.onFailure { Engine.toast("Couldn't open Contacts") }
+}
+
+@Composable
+private fun ActionTile(
+    icon: ImageVector,
+    label: String,
+    modifier: Modifier = Modifier,
+    accent: Boolean = false,
+    onClick: () -> Unit,
+) {
     Column(
         modifier
-            .height(70.dp)
-            .glass(RoundedCornerShape(20.dp), fill = 0.09f, edge = 0.11f)
+            .height(66.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (accent) Ink.Green else Ink.Raised)
             .clickable(role = Role.Button, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, contentDescription = null, tint = TextPrimary, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.height(6.dp))
-        Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Icon(icon, contentDescription = null, tint = Ink.Text, modifier = Modifier.size(21.dp))
+        Spacer(Modifier.height(5.dp))
+        Text(label, fontFamily = ArchivoWide, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Ink.Text)
     }
 }
-
-@Composable
-fun SettingRow(
-    icon: ImageVector,
-    label: String,
-    color: Color = TextPrimary,
-    trailing: (@Composable () -> Unit)? = null,
-    onClick: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 15.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(21.dp))
-        Spacer(Modifier.width(14.dp))
-        Text(label, fontSize = 16.sp, fontWeight = FontWeight.Medium, color = color, modifier = Modifier.weight(1f))
-        trailing?.invoke()
-    }
-}
-
-@Composable
-fun RowDivider() {
-    Box(Modifier.padding(start = 51.dp).fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.08f)))
-}
-
-@Composable
-fun DangerRow(icon: ImageVector, label: String, onClick: () -> Unit) = SettingRow(icon, label, color = Danger, onClick = onClick)

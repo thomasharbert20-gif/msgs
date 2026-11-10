@@ -90,7 +90,7 @@ class NotificationRelay : NotificationListenerService() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setOnlyAlertOnce(false)
-            .setColor(0xFFA6DA7C.toInt())
+            .setColor(0xFF0B7A4B.toInt())
             .setContentIntent(
                 PendingIntent.getActivity(this, id, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             )

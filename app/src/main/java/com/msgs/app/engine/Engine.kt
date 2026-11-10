@@ -440,21 +440,44 @@ object Engine : Listener {
         if (message.text.isNotBlank()) sendText(message.convId, message.text, message.replyTo.ifBlank { null })
     }
 
-    fun sendMedia(context: Context, convId: String, uri: Uri, replyTo: String? = null) {
+    fun sendMedia(
+        context: Context,
+        convId: String,
+        uri: Uri,
+        replyTo: String? = null,
+        mimeOverride: String? = null,
+        nameOverride: String? = null,
+        localPreview: String? = null,
+    ) {
         val tmpId = UUID.randomUUID().toString()
         val localId = "local:$tmpId"
         val resolver = context.contentResolver
-        val mime = resolver.getType(uri) ?: "application/octet-stream"
+        val mime = mimeOverride ?: resolver.getType(uri) ?: "application/octet-stream"
         merge(
             convId,
-            listOf(Message(id = localId, convId = convId, fromMe = true, ts = System.currentTimeMillis(), tmpId = tmpId, pending = true, localPreview = uri.toString(), text = ""))
+            listOf(
+                Message(
+                    id = localId, convId = convId, fromMe = true, ts = System.currentTimeMillis(), tmpId = tmpId,
+                    pending = true, localPreview = localPreview ?: uri.toString(), text = "",
+                )
+            )
         )
-        bumpPreview(convId, if (mime.startsWith("video")) "Video" else "Photo")
+        bumpPreview(
+            convId,
+            when {
+                mime.startsWith("video") -> "Video"
+                mime.startsWith("audio") -> "Voice message"
+                mime.startsWith("image") -> "Photo"
+                else -> "Attachment"
+            },
+        )
         scope.launch {
             try {
-                var name = "attachment"
-                resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
-                    if (c.moveToFirst()) name = c.getString(0) ?: name
+                var name = nameOverride ?: "attachment"
+                if (nameOverride == null) {
+                    resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                        if (c.moveToFirst()) name = c.getString(0) ?: name
+                    }
                 }
                 val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: error("Couldn't read that file")
                 if (bytes.size > 100 * 1024 * 1024) error("That file is over 100 MB")
@@ -464,6 +487,17 @@ object Engine : Listener {
                 report(e)
             }
         }
+    }
+
+    /** Sends a recorded voice message. The bubble plays the local file until the phone confirms it. */
+    fun sendVoice(context: Context, convId: String, file: File) {
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".files", file)
+        sendMedia(
+            context, convId, uri,
+            mimeOverride = "audio/mp4",
+            nameOverride = "Voice message.m4a",
+            localPreview = "audio:" + file.path,
+        )
     }
 
     private fun bumpPreview(convId: String, preview: String) {
