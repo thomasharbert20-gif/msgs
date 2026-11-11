@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -45,9 +44,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.msgs.app.engine.Engine
 import com.msgs.app.engine.Participant
-import com.msgs.app.ui.theme.Archivo
-import com.msgs.app.ui.theme.ArchivoExpanded
-import com.msgs.app.ui.theme.ArchivoWide
+import com.msgs.app.ui.theme.Sans
+import com.msgs.app.ui.theme.SansCondensed
+import com.msgs.app.ui.theme.Serif
+
 import com.msgs.app.ui.theme.Ink
 import kotlinx.coroutines.launch
 
@@ -80,51 +80,49 @@ fun NewMessageScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
     }
 
     Column(Modifier.fillMaxSize().background(Ink.Bg).imePadding()) {
-        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 16.dp, top = 10.dp)) {
-            CircleIcon(MsgsIcons.Back, "Back", onBack)
-            Spacer(Modifier.height(12.dp))
+        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 6.dp, end = 16.dp, top = 4.dp)) {
+            BackLink("Messages", onBack)
+            Spacer(Modifier.height(8.dp))
             Text(
                 "New message",
-                fontFamily = ArchivoExpanded,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 34.sp,
-                lineHeight = 38.sp,
-                letterSpacing = (-0.5).sp,
+                fontFamily = SansCondensed,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 46.sp,
+                lineHeight = 44.sp,
+                letterSpacing = (-1.1).sp,
                 color = Ink.Text,
-                modifier = Modifier.padding(start = 8.dp),
+                modifier = Modifier.padding(start = 14.dp),
             )
         }
         Row(
             Modifier
-                .padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 8.dp)
+                .padding(start = 20.dp, end = 20.dp, top = 18.dp)
                 .fillMaxWidth()
-                .height(52.dp)
-                .clip(RoundedCornerShape(26.dp))
-                .background(Ink.Raised)
-                .padding(horizontal = 18.dp),
+                .height(52.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("To", fontFamily = ArchivoWide, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = Ink.Text2)
-            Spacer(Modifier.width(12.dp))
+            Text("To", fontFamily = Serif, fontSize = 19.sp, color = Ink.Text2)
+            Spacer(Modifier.width(14.dp))
             BasicTextField(
                 value = query,
                 onValueChange = { query = it },
                 singleLine = true,
-                textStyle = TextStyle(fontFamily = Archivo, fontSize = 16.sp, color = Ink.Text),
+                textStyle = TextStyle(fontFamily = Sans, fontSize = 17.sp, color = Ink.Text),
                 cursorBrush = SolidColor(Ink.GreenText),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { if (digits.length >= 3) start(query) }),
                 modifier = Modifier.weight(1f).focusRequester(focus),
                 decorationBox = { inner ->
                     Box {
-                        if (query.isEmpty()) Text("Name or number", fontSize = 16.sp, color = Ink.Text3)
+                        if (query.isEmpty()) Text("Name or number", fontSize = 17.sp, color = Ink.Text3)
                         inner()
                     }
                 },
             )
         }
+        Hairline(Modifier.padding(horizontal = 20.dp))
         if (busy) {
-            Text("Opening the conversation…", color = Ink.Text2, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp))
+            Text("Opening the conversation…", fontFamily = Serif, color = Ink.Text2, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp))
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
             if (digits.length >= 3) {
@@ -133,16 +131,16 @@ fun NewMessageScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
                         Modifier.fillMaxWidth().clickable { start(query) }.padding(horizontal = 20.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(Modifier.size(50.dp).clip(CircleShape).background(Ink.Green), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(50.dp).clip(RoundedCornerShape(12.dp)).background(Ink.Green), contentAlignment = Alignment.Center) {
                             Icon(MsgsIcons.Send, contentDescription = null, tint = Ink.Text, modifier = Modifier.size(20.dp))
                         }
                         Spacer(Modifier.width(14.dp))
-                        Text("Send to $query", fontFamily = ArchivoWide, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text("Send to $query", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
             if (contacts == null) {
-                item { Text("Loading contacts…", color = Ink.Text2, fontSize = 14.sp, modifier = Modifier.padding(24.dp)) }
+                item { Text("Loading contacts…", fontFamily = Serif, color = Ink.Text2, fontSize = 17.sp, modifier = Modifier.padding(20.dp)) }
             }
             items(filtered) { c ->
                 Row(
@@ -155,7 +153,7 @@ fun NewMessageScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
                     Avatar(null, 50.dp, person = c)
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(c.displayName, fontFamily = ArchivoWide, fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(c.displayName, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (c.name.isNotBlank()) Text(c.number, fontSize = 14.sp, color = Ink.Text2)
                     }
                 }

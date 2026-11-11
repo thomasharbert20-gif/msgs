@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -63,8 +62,9 @@ import com.msgs.app.engine.Engine
 import com.msgs.app.engine.Media
 import com.msgs.app.engine.MediaRepo
 import com.msgs.app.notify.Notifications
-import com.msgs.app.ui.theme.ArchivoExpanded
-import com.msgs.app.ui.theme.ArchivoWide
+import com.msgs.app.ui.theme.SansCondensed
+import com.msgs.app.ui.theme.Serif
+
 import com.msgs.app.ui.theme.Ink
 import kotlinx.coroutines.launch
 
@@ -74,8 +74,6 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val conv = Engine.conversations.collectAsState().value[convId]
     val pins by Prefs.pins.collectAsState()
-    val bubbles by Prefs.bubbles.collectAsState()
-    val bubbleDefault by Prefs.bubbleDefault.collectAsState()
     val messages = Engine.messages.collectAsState().value[convId].orEmpty()
     val version by AvatarRepo.version.collectAsState()
     val key = remember(conv?.id, conv?.groupAvatarUrl) { AvatarRepo.keyFor(conv) }
@@ -90,7 +88,6 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
     val dialNumber = conv?.other?.let { it.rawNumber.ifBlank { it.number } }
     val media = remember(messages) { messages.flatMap { it.media }.filter { it.isImage || it.isVideo }.reversed() }
     val pinned = convId in pins
-    val bubble = bubbles[convId] ?: bubbleDefault
     val isPerson = conv?.isGroup == false && !dialNumber.isNullOrBlank()
 
     LazyColumn(Modifier.fillMaxSize().background(Ink.Bg), contentPadding = PaddingValues(bottom = 36.dp)) {
@@ -107,19 +104,19 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
             Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp)) {
                 Text(
                     conv?.title.orEmpty(),
-                    fontFamily = ArchivoExpanded,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 36.sp,
-                    lineHeight = 40.sp,
-                    letterSpacing = (-0.5).sp,
+                    fontFamily = SansCondensed,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 46.sp,
+                    lineHeight = 42.sp,
+                    letterSpacing = (-1).sp,
                     color = Ink.Text,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
                 when {
-                    !number.isNullOrBlank() -> Text(number, fontSize = 15.sp, color = Ink.Text2)
-                    conv?.isGroup == true -> Text("${conv.others.size + 1} people", fontSize = 15.sp, color = Ink.Text2)
+                    !number.isNullOrBlank() -> Text(number, fontFamily = Serif, fontSize = 18.sp, color = Ink.Text2)
+                    conv?.isGroup == true -> Text("${conv.others.size + 1} people", fontFamily = Serif, fontSize = 18.sp, color = Ink.Text2)
                 }
             }
         }
@@ -148,7 +145,7 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
             item {
                 Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 24.dp)) {
                     Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Photos and media", fontFamily = ArchivoWide, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                        Text("Photos and media", fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
                         Text(media.size.toString(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Ink.Text3)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -157,7 +154,7 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
                                 Modifier
                                     .weight(1f)
                                     .aspectRatio(1f)
-                                    .clip(RoundedCornerShape(14.dp))
+                                    .clip(PortraitShape)
                                     .background(Ink.Raised)
                                     .clickable { if (m.isImage) viewer = m },
                             ) {
@@ -165,7 +162,7 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
                                 bmp?.let { Image(it, contentDescription = "Photo", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize()) }
                                 if (i == 3 && media.size > 4) {
                                     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.55f)), contentAlignment = Alignment.Center) {
-                                        Text("+${media.size - 4}", fontFamily = ArchivoWide, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                                        Text("+${media.size - 4}", fontSize = 17.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }
@@ -178,21 +175,11 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
         item {
             Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp).fillMaxWidth().panel()) {
                 SettingRow(MsgsIcons.Image, if (conv?.isGroup == true) "Group photo" else "Contact photo", trailing = {
-                    Text(if (hasCustom) "Change" else "Choose", color = Ink.GreenText, fontFamily = ArchivoWide, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(if (hasCustom) "Change" else "Choose", color = Ink.GreenText, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                 }, onClick = pickPhoto)
                 if (hasCustom) {
                     RowDivider()
                     SettingRow(MsgsIcons.Close, "Remove my photo", onClick = { AvatarRepo.removeCustom(key) })
-                }
-                RowDivider()
-                Row(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(MsgsIcons.Bubble, contentDescription = null, tint = Ink.Text, modifier = Modifier.size(21.dp))
-                    Spacer(Modifier.width(14.dp))
-                    Text("Bubble color", fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                    BubbleSwatches(bubble, onPick = { Prefs.setBubble(convId, if (it == bubbleDefault) null else it) })
                 }
                 RowDivider()
                 SettingRow(MsgsIcons.Bell, "Notifications", onClick = {
@@ -216,8 +203,8 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
                 Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp).fillMaxWidth().panel().padding(vertical = 6.dp)) {
                     Text(
                         "Members",
-                        fontFamily = ArchivoWide,
-                        fontWeight = FontWeight.ExtraBold,
+                        
+                        fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
                         modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 4.dp),
                     )
@@ -226,7 +213,7 @@ fun ContactScreen(convId: String, onBack: () -> Unit) {
                             Avatar(conv, 42.dp, person = person, ring = Ink.Raised)
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(person.displayName, fontFamily = ArchivoWide, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(person.displayName, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 if (person.name.isNotBlank() && person.number.isNotBlank()) {
                                     Text(person.number, fontSize = 13.sp, color = Ink.Text2)
                                 }
@@ -285,7 +272,7 @@ private fun Poster(
                             .padding(horizontal = 18.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("Edit", fontFamily = ArchivoWide, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = Ink.Text)
+                        Text("Edit", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Ink.Text)
                     }
                 }
             }
@@ -295,10 +282,10 @@ private fun Poster(
                 .align(Alignment.BottomEnd)
                 .padding(end = 20.dp)
                 .size(60.dp)
-                .clip(CircleShape)
+                .clip(RoundedCornerShape(18.dp))
                 .background(Ink.Bg)
                 .padding(4.dp)
-                .clip(CircleShape)
+                .clip(RoundedCornerShape(14.dp))
                 .background(Ink.Green)
                 .clickable(role = Role.Button, onClick = onPhoto)
                 .semantics { contentDescription = photoLabel },
@@ -340,6 +327,6 @@ private fun ActionTile(
     ) {
         Icon(icon, contentDescription = null, tint = Ink.Text, modifier = Modifier.size(21.dp))
         Spacer(Modifier.height(5.dp))
-        Text(label, fontFamily = ArchivoWide, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Ink.Text)
+        Text(label, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Ink.Text)
     }
 }

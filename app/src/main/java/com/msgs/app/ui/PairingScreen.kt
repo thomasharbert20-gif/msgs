@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -55,9 +54,9 @@ import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import com.msgs.app.engine.Engine
 import com.msgs.app.notify.Notifications
-import com.msgs.app.ui.theme.Archivo
-import com.msgs.app.ui.theme.ArchivoExpanded
-import com.msgs.app.ui.theme.ArchivoWide
+import com.msgs.app.ui.theme.Sans
+import com.msgs.app.ui.theme.SansCondensed
+
 import com.msgs.app.ui.theme.Ink
 import gmbridge.Gmbridge
 import kotlinx.coroutines.launch
@@ -119,11 +118,11 @@ private fun Intro(onStart: () -> Unit, onPaste: (String) -> Unit) {
         Spacer(Modifier.height(56.dp))
         Text(
             "Messages",
-            fontFamily = ArchivoExpanded,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 48.sp,
-            lineHeight = 52.sp,
-            letterSpacing = (-0.5).sp,
+            fontFamily = SansCondensed,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 64.sp,
+            lineHeight = 58.sp,
+            letterSpacing = (-1.6).sp,
             color = Ink.Text,
         )
         Spacer(Modifier.height(12.dp))
@@ -147,7 +146,7 @@ private fun Intro(onStart: () -> Unit, onPaste: (String) -> Unit) {
                 .clickable(role = Role.Button, onClick = onStart),
             contentAlignment = Alignment.Center,
         ) {
-            Text("Sign in with Google", color = Ink.Text, fontFamily = ArchivoWide, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+            Text("Sign in with Google", color = Ink.Text, fontSize = 17.sp, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.height(18.dp))
         Text(
@@ -177,7 +176,7 @@ private fun Intro(onStart: () -> Unit, onPaste: (String) -> Unit) {
                 BasicTextField(
                     value = pasted,
                     onValueChange = { pasted = it; pasteError = null },
-                    textStyle = TextStyle(fontFamily = Archivo, fontSize = 13.sp, color = Ink.Text),
+                    textStyle = TextStyle(fontFamily = Sans, fontSize = 13.sp, color = Ink.Text),
                     cursorBrush = SolidColor(Ink.GreenText),
                     modifier = Modifier.fillMaxWidth(),
                     decorationBox = { inner ->
@@ -203,12 +202,12 @@ private fun Intro(onStart: () -> Unit, onPaste: (String) -> Unit) {
 @Composable
 private fun Step(n: Int, title: String, body: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-        Box(Modifier.size(32.dp).clip(CircleShape).background(Ink.Raised), contentAlignment = Alignment.Center) {
-            Text(n.toString(), fontFamily = ArchivoWide, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, color = Ink.GreenText)
+        Box(Modifier.size(32.dp).clip(RoundedCornerShape(8.dp)).background(Ink.Raised), contentAlignment = Alignment.Center) {
+            Text(n.toString(), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Ink.GreenText)
         }
         Spacer(Modifier.width(14.dp))
         Column {
-            Text(title, fontFamily = ArchivoWide, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             Text(body, fontSize = 14.sp, lineHeight = 20.sp, color = Ink.Text2)
         }
     }
@@ -245,7 +244,7 @@ private fun GoogleSignIn(onCookies: (String) -> Unit, onCancel: () -> Unit) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             CircleIcon(MsgsIcons.Back, "Back", onCancel)
             Spacer(Modifier.width(12.dp))
-            Text("Sign in to Google", fontFamily = ArchivoWide, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+            Text("Sign in to Google", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             if (loading) CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = Ink.Text2)
         }
         Box(
@@ -315,11 +314,11 @@ private fun EmojiStep(emoji: String, onCancel: () -> Unit) {
             Spacer(Modifier.height(20.dp))
             Text("Connecting to your Google account…", fontSize = 16.sp, color = Ink.Text2)
         } else {
-            Box(Modifier.size(150.dp).clip(CircleShape).background(Ink.Raised), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(150.dp).clip(RoundedCornerShape(28.dp)).background(Ink.Raised), contentAlignment = Alignment.Center) {
                 Text(emoji, fontSize = 84.sp)
             }
             Spacer(Modifier.height(28.dp))
-            Text("Tap this emoji in Google Messages", fontFamily = ArchivoWide, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
+            Text("Tap this emoji in Google Messages", fontSize = 20.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
             Spacer(Modifier.height(10.dp))
             Text(
                 "Google Messages on this phone is asking you to confirm. Open it, pick the same emoji, and come back here.",
@@ -351,7 +350,7 @@ private fun Failed(message: String, onRetry: () -> Unit, onBack: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text("Pairing didn't finish", fontFamily = ArchivoWide, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+        Text("Pairing didn't finish", fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(10.dp))
         Text(message, fontSize = 15.sp, lineHeight = 22.sp, color = Ink.Text2, textAlign = TextAlign.Center)
         Spacer(Modifier.height(24.dp))

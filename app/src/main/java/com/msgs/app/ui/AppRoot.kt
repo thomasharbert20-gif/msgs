@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import com.msgs.app.engine.Engine
 import com.msgs.app.ui.theme.Ink
 import com.msgs.app.ui.theme.MsgsTheme
+import com.msgs.app.ui.theme.Serif
 import com.msgs.app.update.Updater
 
 sealed interface Route {
@@ -157,8 +158,12 @@ private fun EmptyDetail() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
     ) {
-        Icon(MsgsIcons.Bubble, contentDescription = null, tint = Ink.Text3, modifier = Modifier.size(40.dp))
-        Spacer(Modifier.height(12.dp))
-        Text("Pick a conversation", color = Ink.Text3, fontSize = 16.sp, textAlign = TextAlign.Center)
+        Text(
+            "Pick a conversation.",
+            fontFamily = Serif,
+            color = Ink.Text2,
+            fontSize = 22.sp,
+            textAlign = TextAlign.Center,
+        )
     }
 }

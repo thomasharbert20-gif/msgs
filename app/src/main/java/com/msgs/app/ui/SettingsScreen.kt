@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -59,9 +58,9 @@ import com.msgs.app.BuildConfig
 import com.msgs.app.data.Prefs
 import com.msgs.app.engine.Engine
 import com.msgs.app.notify.Notifications
-import com.msgs.app.ui.theme.Archivo
-import com.msgs.app.ui.theme.ArchivoExpanded
-import com.msgs.app.ui.theme.ArchivoWide
+import com.msgs.app.ui.theme.Sans
+import com.msgs.app.ui.theme.SansCondensed
+import com.msgs.app.ui.theme.Serif
 import com.msgs.app.ui.theme.Ink
 import com.msgs.app.update.TokenStore
 import com.msgs.app.update.Updater
@@ -73,7 +72,6 @@ fun SettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
-    val bubbleDefault by Prefs.bubbleDefault.collectAsState()
     val relay by Prefs.relay.collectAsState()
     val update by Updater.state.collectAsState()
     val status by Engine.status.collectAsState()
@@ -98,34 +96,19 @@ fun SettingsScreen(onBack: () -> Unit) {
 
     LazyColumn(Modifier.fillMaxSize().background(Ink.Bg), contentPadding = PaddingValues(bottom = 40.dp)) {
         item {
-            Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 16.dp, top = 10.dp)) {
-                CircleIcon(MsgsIcons.Back, "Back", onBack)
-                Spacer(Modifier.height(12.dp))
+            Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 6.dp, end = 16.dp, top = 4.dp)) {
+                BackLink("Messages", onBack)
+                Spacer(Modifier.height(8.dp))
                 Text(
                     "Settings",
-                    fontFamily = ArchivoExpanded,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 40.sp,
-                    lineHeight = 44.sp,
-                    letterSpacing = (-0.5).sp,
+                    fontFamily = SansCondensed,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 56.sp,
+                    lineHeight = 52.sp,
+                    letterSpacing = (-1.4).sp,
                     color = Ink.Text,
-                    modifier = Modifier.padding(start = 8.dp),
+                    modifier = Modifier.padding(start = 14.dp),
                 )
-            }
-        }
-
-        item {
-            Section("Your bubbles") {
-                Row(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(MsgsIcons.Bubble, contentDescription = null, tint = Ink.Text, modifier = Modifier.size(21.dp))
-                    Spacer(Modifier.width(14.dp))
-                    Text("Bubble color", fontSize = 16.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                    BubbleSwatches(bubbleDefault, onPick = { Prefs.setBubbleDefault(it) })
-                }
-                Hint("Applies to every chat. You can give a chat its own color from its contact page.")
             }
         }
 
@@ -135,7 +118,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                     Text(
                         if (listenerOn) "On" else "Turn on",
                         color = if (listenerOn) Ink.Text2 else Ink.GreenText,
-                        fontFamily = ArchivoWide,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                     )
@@ -202,7 +184,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 RowDivider()
                 if (hasToken) {
                     SettingRow(MsgsIcons.Key, "GitHub token saved", trailing = {
-                        Text("Remove", color = Ink.Danger, fontFamily = ArchivoWide, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        Text("Remove", color = Ink.Danger, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     }, onClick = {
                         TokenStore.clear(context)
                         hasToken = false
@@ -213,7 +195,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                             Modifier
                                 .weight(1f)
                                 .height(46.dp)
-                                .clip(RoundedCornerShape(23.dp))
+                                .clip(RoundedCornerShape(12.dp))
                                 .background(Ink.Raised2)
                                 .padding(horizontal = 16.dp),
                             contentAlignment = Alignment.CenterStart,
@@ -224,7 +206,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 singleLine = true,
                                 visualTransformation = PasswordVisualTransformation(),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                                textStyle = TextStyle(fontFamily = Archivo, fontSize = 15.sp, color = Ink.Text),
+                                textStyle = TextStyle(fontFamily = Sans, fontSize = 15.sp, color = Ink.Text),
                                 cursorBrush = SolidColor(Ink.GreenText),
                                 modifier = Modifier.fillMaxWidth(),
                                 decorationBox = { inner ->
@@ -253,7 +235,7 @@ fun SettingsScreen(onBack: () -> Unit) {
         item {
             Section("Connection") {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(10.dp).clip(CircleShape).background(if (status.state == "connected") Ink.GreenText else Ink.Warn))
+                    Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(if (status.state == "connected") Ink.GreenText else Ink.Text2))
                     Spacer(Modifier.width(12.dp))
                     Text(
                         when (status.state) {
@@ -317,9 +299,8 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
     Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 22.dp)) {
         Text(
             title,
-            fontFamily = ArchivoWide,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.ExtraBold,
+            fontFamily = Serif,
+            fontSize = 18.sp,
             color = Ink.Text2,
             modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
         )
