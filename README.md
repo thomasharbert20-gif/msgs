@@ -10,9 +10,12 @@ does the RCS and SMS work in the background, and Msgs is the app you actually us
   [mautrix-gmessages](https://github.com/mautrix/gmessages)' `libgm` package and
   is compiled for Android with gomobile.
 - `app/` is the Android app (Kotlin, Jetpack Compose).
-- `.github/workflows/build.yml` builds both on every push to `main`, signs the APK
-  with `signing/msgs.p12` (unlocked by the `SIGNING_PASSWORD` secret), and
-  publishes it as a GitHub release. The app's updater reads those releases.
+- `.github/workflows/build.yml` builds both on every push to `main` and publishes
+  the APK as a GitHub pre-release. The signing key is never in the repo: CI uses
+  the `MSGS_KEYSTORE_B64` and `MSGS_KEYSTORE_PASSWORD` secrets if they exist,
+  otherwise a one-time key for that build only.
+- R4 test builds pair by QR code only, keep the pairing keys encrypted with an
+  Android Keystore key, and have deleting and the in-app updater turned off.
 - The `ci-logs` branch holds the log of the latest build.
 
 ## Licence

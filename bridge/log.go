@@ -1,6 +1,7 @@
 package gmbridge
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,11 +20,37 @@ type rotatingWriter struct {
 	size int64
 }
 
-func (w *rotatingWriter) Write(p []byte) (int, error) {
+// redactKeys are log fields that can carry message data, payloads, device lists
+// or response bodies. They are dropped before anything reaches the log file.
+var redactKeys = []string{"data", "resp_body", "devices", "body", "text", "evt", "panic", "cookies", "token", "url", "number", "phone", "device_id"}
+
+// redact keeps only safe fields: it drops redactKeys and shortens error strings,
+// which can embed server responses.
+func redact(p []byte) []byte {
+	var m map[string]any
+	if err := json.Unmarshal(p, &m); err != nil {
+		return []byte("{\"level\":\"warn\",\"message\":\"unparseable log line dropped\"}\n")
+	}
+	for _, k := range redactKeys {
+		delete(m, k)
+	}
+	if e, ok := m["error"].(string); ok && len(e) > 160 {
+		m["error"] = e[:160] + "…"
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+	return append(out, '\n')
+}
+
+func (w *rotatingWriter) Write(in []byte) (int, error) {
+	n := len(in)
+	p := redact(in)
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.f == nil {
-		return len(p), nil
+	if w.f == nil || len(p) == 0 {
+		return n, nil
 	}
 	if w.size+int64(len(p)) > maxLogSize {
 		_ = w.f.Close()
@@ -31,13 +58,28 @@ func (w *rotatingWriter) Write(p []byte) (int, error) {
 		f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
 		if err != nil {
 			w.f = nil
-			return len(p), nil
+			return n, nil
 		}
 		w.f, w.size = f, 0
 	}
-	n, err := w.f.Write(p)
-	w.size += int64(n)
-	return n, err
+	written, err := w.f.Write(p)
+	w.size += int64(written)
+	if err != nil {
+		return n, err
+	}
+	return n, nil
+}
+
+// truncate empties the log files (used when unpairing).
+func (w *rotatingWriter) truncate() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_ = os.Remove(w.path + ".1")
+	if w.f != nil {
+		_ = w.f.Truncate(0)
+		_, _ = w.f.Seek(0, io.SeekStart)
+	}
+	w.size = 0
 }
 
 func newLogger(dataDir string) zerolog.Logger {
@@ -49,7 +91,18 @@ func newLogger(dataDir string) zerolog.Logger {
 			w.size = st.Size()
 		}
 	}
-	return zerolog.New(w).With().Timestamp().Logger().Level(zerolog.DebugLevel)
+	logWriter = w
+	// Info and above only: libgm's debug and trace output includes payloads.
+	return zerolog.New(w).With().Timestamp().Logger().Level(zerolog.InfoLevel)
+}
+
+var logWriter *rotatingWriter
+
+// WipeLogs deletes the engine log's contents.
+func (b *Bridge) WipeLogs() {
+	if logWriter != nil {
+		logWriter.truncate()
+	}
 }
 
 // ReadLog returns the last part of the engine log, for the diagnostics screen.

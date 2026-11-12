@@ -11,3 +11,8 @@ app/libs/*.jar
 bridge/go.sum
 build.log
 .DS_Store
+# Signing keys never go in the repo
+*.p12
+*.jks
+*.keystore
+signing/

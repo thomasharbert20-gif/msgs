@@ -23,6 +23,15 @@ import (
 	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
 )
 
+// SessionStore keeps the pairing keys. The Android app implements it with an
+// Android Keystore key, so the keys are encrypted at rest and the encryption key
+// can't leave the phone. The engine never writes the session to disk itself.
+type SessionStore interface {
+	Save(data []byte) error
+	Load() []byte
+	Clear()
+}
+
 // Listener receives events from the engine. The Android app implements it.
 // kind is a short event name, payload is JSON. Implementations must return quickly.
 type Listener interface {
@@ -33,6 +42,7 @@ type Listener interface {
 type Bridge struct {
 	dataDir  string
 	listener Listener
+	store    SessionStore
 	log      zerolog.Logger
 
 	mu     sync.Mutex
@@ -51,7 +61,7 @@ type Bridge struct {
 
 	pairMu     sync.Mutex
 	pairClient *libgm.Client
-	pairSess   *libgm.PairingSession
+	pairDone   chan *gmproto.PairedData
 	pairCancel context.CancelFunc
 
 	saveMu sync.Mutex
@@ -59,15 +69,18 @@ type Bridge struct {
 	events chan [2]string
 }
 
-const sessionFile = "session.json"
+// legacySessionFile is where builds 1-5 kept the session (with Google cookies) in
+// plain text. It is deleted on startup and never written again.
+const legacySessionFile = "session.json"
 
-// NewBridge creates the engine. dataDir must be a private directory; the session
-// keys and Google cookies are stored there.
-func NewBridge(dataDir string, listener Listener) *Bridge {
+// NewBridge creates the engine. dataDir must be a private directory; only the
+// engine log lives there. Pairing keys go through store.
+func NewBridge(dataDir string, listener Listener, store SessionStore) *Bridge {
 	_ = os.MkdirAll(dataDir, 0o700)
 	b := &Bridge{
 		dataDir:         dataDir,
 		listener:        listener,
+		store:           store,
 		log:             newLogger(dataDir),
 		convs:           make(map[string]*gmproto.Conversation),
 		sims:            make(map[string]*gmproto.SIMCard),
@@ -85,7 +98,7 @@ func (b *Bridge) dispatch() {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					b.log.Error().Any("panic", r).Str("kind", evt[0]).Msg("Listener panicked")
+					b.log.Error().Str("kind", evt[0]).Msg("Listener panicked")
 				}
 			}()
 			if b.listener != nil {
@@ -106,7 +119,7 @@ func (b *Bridge) emit(kind string, payload any) {
 		var err error
 		data, err = json.Marshal(p)
 		if err != nil {
-			b.log.Err(err).Str("kind", kind).Msg("Failed to encode event")
+			b.log.Warn().Str("kind", kind).Msg("Failed to encode event")
 			return
 		}
 	}
@@ -119,55 +132,78 @@ func (b *Bridge) emit(kind string, payload any) {
 
 // ---------- session storage ----------
 
-func (b *Bridge) sessionPath() string {
-	return filepath.Join(b.dataDir, sessionFile)
+// hasGoogleCreds reports whether a session is a Google-account pairing or holds
+// any Google cookies. Neither is ever stored or used by R4 builds.
+func hasGoogleCreds(ad *libgm.AuthData) bool {
+	return ad.IsGoogleAccount() || len(ad.Cookies) > 0
 }
 
+// LegacyRemoved is true when startup found and deleted an old plain-text session.
+var LegacyRemoved bool
+
 func (b *Bridge) loadSession() {
-	data, err := os.ReadFile(b.sessionPath())
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			b.log.Err(err).Msg("Failed to read session")
+	for _, name := range []string{legacySessionFile, legacySessionFile + ".tmp"} {
+		if err := os.Remove(filepath.Join(b.dataDir, name)); err == nil {
+			LegacyRemoved = true
 		}
+	}
+	if b.store == nil {
+		return
+	}
+	data := b.store.Load()
+	if len(data) == 0 {
 		return
 	}
 	var ad libgm.AuthData
-	if err = json.Unmarshal(data, &ad); err != nil {
-		b.log.Err(err).Msg("Failed to parse session")
+	if err := json.Unmarshal(data, &ad); err != nil {
+		b.log.Warn().Msg("Saved session is unreadable; discarding it")
+		b.store.Clear()
+		return
+	}
+	if hasGoogleCreds(&ad) {
+		// Google-account sessions carry broad Google cookies. Refuse them.
+		b.log.Warn().Msg("Discarding a Google-account session; pair again by QR code")
+		b.store.Clear()
 		return
 	}
 	b.auth = &ad
-	b.log.Info().Bool("google_account", ad.IsGoogleAccount()).Msg("Loaded saved session")
+	b.log.Info().Msg("Loaded saved session")
 }
 
 func (b *Bridge) saveSession() {
+	if err := b.saveSessionErr(); err != nil {
+		b.log.Warn().Msg("Couldn't save session")
+	}
+}
+
+func (b *Bridge) saveSessionErr() error {
 	b.saveMu.Lock()
 	defer b.saveMu.Unlock()
 	b.mu.Lock()
 	ad := b.auth
 	b.mu.Unlock()
 	if ad == nil {
-		return
+		return nil
+	}
+	if b.store == nil {
+		return errors.New("no secure store")
+	}
+	if hasGoogleCreds(ad) {
+		return errors.New("refusing to store Google cookies")
 	}
 	data, err := json.Marshal(ad)
 	if err != nil {
-		b.log.Err(err).Msg("Failed to encode session")
-		return
+		return err
 	}
-	tmp := b.sessionPath() + ".tmp"
-	if err = os.WriteFile(tmp, data, 0o600); err != nil {
-		b.log.Err(err).Msg("Failed to write session")
-		return
-	}
-	if err = os.Rename(tmp, b.sessionPath()); err != nil {
-		b.log.Err(err).Msg("Failed to move session into place")
-	}
+	return b.store.Save(data)
 }
 
 func (b *Bridge) deleteSession() {
 	b.saveMu.Lock()
 	defer b.saveMu.Unlock()
-	_ = os.Remove(b.sessionPath())
+	if b.store != nil {
+		b.store.Clear()
+	}
 }
 
 // IsPaired reports whether a usable pairing is saved.
@@ -216,11 +252,7 @@ func (b *Bridge) Connect() error {
 	err := cli.FetchConfig(fetchCtx)
 	cancel()
 	if err != nil {
-		b.log.Warn().Err(err).Msg("Failed to fetch config")
-	} else if b.auth.IsGoogleAccount() && cli.Config.GetDeviceInfo().GetEmail() == "" {
-		b.log.Warn().Msg("No email in config, Google sign-in expired")
-		b.markUnpaired("google_signed_out")
-		return errors.New("your Google sign-in expired; pair again")
+		b.log.Warn().Msg("Failed to fetch config")
 	}
 	if err = cli.Connect(ctx); err != nil {
 		if isCredentialError(err) {
@@ -276,8 +308,14 @@ func (b *Bridge) SetActive() error {
 func (b *Bridge) Unpair() error {
 	b.mu.Lock()
 	cli := b.client
+	auth := b.auth
 	b.mu.Unlock()
-	var err error
+	err := errors.New("no saved pairing")
+	if cli == nil && auth != nil {
+		// Not connected right now: use a short-lived client just to send the revoke.
+		cli = b.newClient(auth, "unpair")
+		defer cli.Disconnect()
+	}
 	if cli != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		err = cli.Unpair(ctx)
@@ -292,8 +330,12 @@ func (b *Bridge) Unpair() error {
 	b.convs = make(map[string]*gmproto.Conversation)
 	b.sims = make(map[string]*gmproto.SIMCard)
 	b.stateMu.Unlock()
+	b.WipeLogs()
 	b.setState("unpaired", "")
-	return err
+	if err != nil {
+		return errors.New("removed from this phone, but Google didn't confirm the revoke. Check Google Messages > Device pairing")
+	}
+	return nil
 }
 
 // Status returns the connection status as JSON.

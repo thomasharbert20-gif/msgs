@@ -148,8 +148,17 @@ func (b *Bridge) SetTyping(convID string) error {
 	return cli.SetTyping(ctx, convID, b.simPayloadFor(conv))
 }
 
+// AllowDestructive gates deleting messages and conversations on the phone. It is
+// off in R4 test builds so testing can never remove real messages.
+const AllowDestructive = false
+
+var errDisabled = errors.New("deleting is turned off in this test build")
+
 // DeleteConversation deletes a conversation on the phone.
 func (b *Bridge) DeleteConversation(convID string) error {
+	if !AllowDestructive {
+		return errDisabled
+	}
 	cli, err := b.cli()
 	if err != nil {
 		return err
@@ -342,6 +351,9 @@ func (b *Bridge) SendReaction(convID, messageID, emoji, action string) error {
 
 // DeleteMessage deletes a message on the phone.
 func (b *Bridge) DeleteMessage(messageID string) error {
+	if !AllowDestructive {
+		return errDisabled
+	}
 	cli, err := b.cli()
 	if err != nil {
 		return err

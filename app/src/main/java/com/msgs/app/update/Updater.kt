@@ -48,6 +48,7 @@ object Updater {
 
     /** Checks at most every 6 hours unless forced. */
     suspend fun check(context: Context, force: Boolean = false): Release? = withContext(Dispatchers.IO) {
+        if (!com.msgs.app.BuildConfig.UPDATER_ENABLED) return@withContext null
         if (!force && System.currentTimeMillis() - Prefs.lastUpdateCheck < 6 * 3600_000L) {
             return@withContext (_state.value as? State.Available)?.release
         }

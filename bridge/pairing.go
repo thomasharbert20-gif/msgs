@@ -2,145 +2,141 @@ package gmbridge
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	"go.mau.fi/mautrix-gmessages/pkg/libgm"
-	"go.mau.fi/mautrix-gmessages/pkg/libgm/events"
+	"go.mau.fi/mautrix-gmessages/pkg/libgm/gmproto"
 )
 
-// Cookies Google Messages for web needs from a signed-in Google session.
-var requiredCookies = []string{"SID", "HSID", "SSID", "APISID", "SAPISID", "OSID"}
+// QR pairing, the same flow messages.google.com uses when you choose "Pair with
+// QR code". No Google account sign-in and no Google cookies are involved: the
+// session that results holds only keys scoped to this one Messages-for-web
+// pairing, which can be revoked from Google Messages > Device pairing.
 
-// MissingCookies returns a comma-separated list of required cookie names that are
-// absent from cookiesJSON (a JSON object of name to value). Empty means all present.
-func MissingCookies(cookiesJSON string) string {
-	var cookies map[string]string
-	if err := json.Unmarshal([]byte(cookiesJSON), &cookies); err != nil {
-		return strings.Join(requiredCookies, ",")
-	}
-	var missing []string
-	for _, name := range requiredCookies {
-		if cookies[name] == "" {
-			missing = append(missing, name)
-		}
-	}
-	return strings.Join(missing, ",")
-}
-
-// StartPairing begins Google account pairing with the cookies from a signed-in
-// messages.google.com session. It returns the emoji the user must tap in Google
-// Messages on the phone. Call FinishPairing next; it blocks until they tap it.
-func (b *Bridge) StartPairing(cookiesJSON string) (string, error) {
-	var cookies map[string]string
-	if err := json.Unmarshal([]byte(cookiesJSON), &cookies); err != nil {
-		return "", fmt.Errorf("couldn't read the Google sign-in: %w", err)
-	}
-	if missing := MissingCookies(cookiesJSON); missing != "" {
-		return "", fmt.Errorf("Google sign-in is incomplete (missing %s). Sign in again", missing)
-	}
+// StartQRPairing begins a pairing attempt and returns the QR code contents. The
+// code expires after about 30 seconds; call RefreshQR to get a new one.
+func (b *Bridge) StartQRPairing() (string, error) {
 	b.CancelPairing()
-
-	ad := libgm.NewAuthData()
-	ad.Cookies = cookies
-	cli := b.newClient(ad, "libgm-pair")
+	cli := b.newClient(libgm.NewAuthData(), "pair")
 	cli.SetEventHandler(func(evt any) {
 		b.log.Debug().Type("type", evt).Msg("Event during pairing")
 	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	if err := cli.FetchConfig(ctx); err != nil {
-		return "", fmt.Errorf("couldn't reach Google Messages: %w", err)
+	done := make(chan *gmproto.PairedData, 1)
+	cb := func(data *gmproto.PairedData) {
+		select {
+		case done <- data:
+		default:
+		}
 	}
-	if cli.Config.GetDeviceInfo().GetEmail() == "" {
-		return "", errors.New("Google didn't accept that sign-in. Sign in again")
+	cli.PairCallback.Store(&cb)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	err := cli.FetchConfig(ctx)
+	cancel()
+	if err != nil {
+		b.log.Warn().Msg("Couldn't fetch config before pairing")
+		return "", errors.New("couldn't reach Google Messages. Check your connection and try again")
 	}
 	bgCtx, bgCancel := context.WithCancel(context.Background())
-	emoji, sess, err := cli.StartGaiaPairing(ctx, bgCtx)
+	qr, err := cli.StartLogin(bgCtx)
 	if err != nil {
 		bgCancel()
 		cli.Disconnect()
-		b.log.Err(err).Msg("Failed to start pairing")
+		b.log.Warn().Msg("Couldn't start QR pairing")
 		return "", friendlyPairError(err)
 	}
 	b.pairMu.Lock()
-	b.pairClient = cli
-	b.pairSess = sess
-	b.pairCancel = bgCancel
+	b.pairClient, b.pairDone, b.pairCancel = cli, done, bgCancel
 	b.pairMu.Unlock()
-	b.log.Info().Msg("Pairing started, waiting for emoji confirmation")
-	return emoji, nil
+	b.log.Info().Msg("QR pairing started")
+	return qr, nil
 }
 
-// FinishPairing waits (up to 5 minutes) for the user to tap the emoji on the phone,
-// then saves the pairing and connects.
-func (b *Bridge) FinishPairing() error {
+// RefreshQR returns a fresh QR code for the pairing attempt in progress.
+func (b *Bridge) RefreshQR() (string, error) {
 	b.pairMu.Lock()
-	cli, sess := b.pairClient, b.pairSess
+	cli := b.pairClient
 	b.pairMu.Unlock()
-	if cli == nil || sess == nil {
-		return errors.New("pairing hasn't started")
+	if cli == nil {
+		return "", errors.New("pairing hasn't started")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	_, err := cli.FinishGaiaPairing(ctx, sess)
-	b.pairMu.Lock()
-	if b.pairCancel != nil {
-		b.pairCancel()
-	}
-	b.pairClient, b.pairSess, b.pairCancel = nil, nil, nil
-	b.pairMu.Unlock()
-	cli.Disconnect()
+	qr, err := cli.RefreshPhoneRelay()
 	if err != nil {
-		b.log.Err(err).Msg("Failed to finish pairing")
-		return friendlyPairError(err)
+		b.log.Warn().Msg("Couldn't refresh QR code")
+		return "", errors.New("couldn't get a new QR code. Start pairing again")
 	}
+	return qr, nil
+}
+
+// WaitForPairing waits up to timeoutMs for the phone to scan the code. It returns
+// false if the time ran out (show a fresh code and wait again), true once the
+// pairing is saved securely and the connection has started.
+func (b *Bridge) WaitForPairing(timeoutMs int64) (bool, error) {
+	b.pairMu.Lock()
+	cli, done := b.pairClient, b.pairDone
+	b.pairMu.Unlock()
+	if cli == nil || done == nil {
+		return false, errors.New("pairing hasn't started")
+	}
+	var data *gmproto.PairedData
+	select {
+	case data = <-done:
+	case <-time.After(time.Duration(timeoutMs) * time.Millisecond):
+		return false, nil
+	}
+	b.CancelPairing()
+	if data == nil || cli.AuthData.Browser == nil || cli.AuthData.TachyonAuthToken == nil {
+		return false, errors.New("the phone didn't finish pairing. Try again")
+	}
+	// libgm: reconnecting too quickly after pairing can make the phone drop the
+	// new session, so give it a moment to save the pairing.
+	time.Sleep(2 * time.Second)
 	b.mu.Lock()
 	b.auth = cli.AuthData
 	b.mu.Unlock()
-	b.saveSession()
-	b.log.Info().Msg("Paired with Google Messages")
-	b.emit("paired", map[string]any{"account": cli.AuthData.Mobile.GetSourceID()})
-	return b.Connect()
+	if err := b.saveSessionErr(); err != nil {
+		// Never keep running on a pairing we couldn't store securely.
+		b.mu.Lock()
+		b.auth = nil
+		b.mu.Unlock()
+		b.log.Error().Msg("Couldn't store the pairing securely")
+		return false, errors.New("couldn't store the pairing securely on this phone. Nothing was saved")
+	}
+	b.log.Info().Msg("Paired with Google Messages by QR code")
+	b.emit("paired", map[string]any{})
+	// The pairing is saved either way. A failed first connect shows up as a status
+	// event and the app retries; returning an error here would hide the success.
+	if err := b.Connect(); err != nil {
+		b.log.Warn().Msg("First connect after pairing failed")
+	}
+	return true, nil
 }
 
 // CancelPairing abandons a pairing in progress.
 func (b *Bridge) CancelPairing() {
 	b.pairMu.Lock()
 	cli, cancel := b.pairClient, b.pairCancel
-	b.pairClient, b.pairSess, b.pairCancel = nil, nil, nil
+	b.pairClient, b.pairDone, b.pairCancel = nil, nil, nil
 	b.pairMu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
 	if cli != nil {
+		cli.SetEventHandler(nil)
 		cli.Disconnect()
 	}
 }
 
 func friendlyPairError(err error) error {
+	msg := err.Error()
 	switch {
-	case errors.Is(err, libgm.ErrNoDevicesFound):
-		return errors.New("no phone found for this Google account. In Google Messages, tap your profile picture, then Device pairing, and make sure it's signed in to the same account")
-	case errors.Is(err, libgm.ErrPhoneNotFound):
-		return errors.New("your phone isn't ready to pair. Open Google Messages, then try again")
-	case errors.Is(err, libgm.ErrPhoneInactive):
-		return errors.New("Google Messages hasn't connected to this Google account recently. Open it, check Device pairing is signed in, then try again")
-	case errors.Is(err, libgm.ErrPairingInitTimeout):
-		return errors.New("the phone didn't respond. Open Google Messages and try again")
-	case errors.Is(err, events.ErrCallerNoPermission):
-		return errors.New("this Google account can't use Messages for web")
-	case errors.Is(err, libgm.ErrIncorrectEmoji):
-		return errors.New("the wrong emoji was tapped. Try again")
-	case errors.Is(err, libgm.ErrPairingCancelled):
-		return errors.New("pairing was cancelled on the phone")
-	case errors.Is(err, libgm.ErrPairingTimeout), errors.Is(err, context.DeadlineExceeded):
-		return errors.New("pairing timed out. Try again")
+	case strings.Contains(msg, "429"):
+		return errors.New("Google is rate-limiting pairing attempts. Wait a few minutes and try again")
+	case strings.Contains(msg, "context deadline exceeded"), strings.Contains(msg, "timeout"):
+		return errors.New("Google Messages didn't respond in time. Try again")
 	default:
-		return fmt.Errorf("pairing failed: %w", err)
+		return errors.New("couldn't start pairing. Try again")
 	}
 }

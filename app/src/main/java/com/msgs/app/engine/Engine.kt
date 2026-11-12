@@ -27,6 +27,22 @@ import org.json.JSONObject
 import java.io.File
 import java.util.UUID
 
+/**
+ * What the engine has actually done, for the diagnostics screen. Timestamps are 0
+ * until the event has really happened; nothing here is inferred.
+ */
+data class Diagnostics(
+    val lastSync: Long = 0,
+    val lastSend: Long = 0,
+    val lastReceived: Long = 0,
+    val connectAttempts: Int = 0,
+    val reconnects: Int = 0,
+    val lastError: String = "",
+    val lastErrorAt: Long = 0,
+    val legacyRemoved: Boolean = false,
+    val lastUnpair: String = "",
+)
+
 data class EngineStatus(
     val paired: Boolean = false,
     val state: String = "disconnected",
@@ -71,6 +87,9 @@ object Engine : Listener {
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing
 
+    private val _diag = MutableStateFlow(Diagnostics())
+    val diag: StateFlow<Diagnostics> = _diag
+
     private val _toasts = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val toasts: SharedFlow<String> = _toasts
 
@@ -89,7 +108,9 @@ object Engine : Listener {
     fun init(context: Context) {
         app = context.applicationContext
         val dir = File(app.filesDir, "engine").apply { mkdirs() }
-        bridge = Gmbridge.newBridge(dir.absolutePath, this)
+        val webview = removeLegacyWebViewData()
+        bridge = Gmbridge.newBridge(dir.absolutePath, this, SessionVault(app))
+        _diag.update { it.copy(legacyRemoved = webview || Gmbridge.getLegacyRemoved()) }
         _status.value = EngineStatus(paired = bridge.isPaired())
         if (_status.value.paired) loadCache()
     }
@@ -117,6 +138,8 @@ object Engine : Listener {
 
     private fun onStatus(o: JSONObject) {
         val state = o.optString("state")
+        if (state == "reconnecting") _diag.update { it.copy(reconnects = it.reconnects + 1) }
+        if (state == "error") noteError(o.optString("detail"))
         _status.update {
             it.copy(
                 state = state,
@@ -126,7 +149,11 @@ object Engine : Listener {
                 paired = if (state == "unpaired") false else it.paired,
             )
         }
-        if (state == "unpaired") clearLocalData()
+        if (state == "unpaired") {
+            clearLocalData()
+            wipeLocalFiles()
+            runCatching { bridge.wipeLogs() }
+        }
     }
 
     private fun upsert(c: Conversation) {
@@ -137,6 +164,7 @@ object Engine : Listener {
 
     private fun onMessage(m: Message) {
         if (m.id.isEmpty() || m.convId.isEmpty()) return
+        if (!m.isOld && !m.fromMe) _diag.update { it.copy(lastReceived = System.currentTimeMillis()) }
         merge(m.convId, listOf(m))
         val conv = _conversations.value[m.convId]
         if (conv != null && !m.tombstone && !m.deleted && m.ts >= conv.lastTs) {
@@ -198,6 +226,7 @@ object Engine : Listener {
             connectLock.withLock {
                 if (!bridge.isPaired()) return@withLock
                 if (!bridge.isConnected()) {
+                    _diag.update { it.copy(connectAttempts = it.connectAttempts + 1) }
                     try {
                         bridge.connect()
                     } catch (e: Exception) {
@@ -223,14 +252,19 @@ object Engine : Listener {
 
     // ---------------------------------------------------------------- pairing
 
-    suspend fun startPairing(cookiesJson: String): String = withContext(Dispatchers.IO) {
-        bridge.startPairing(cookiesJson)
-    }
+    /** Starts QR pairing and returns the QR contents. */
+    suspend fun startQrPairing(): String = withContext(Dispatchers.IO) { bridge.startQRPairing() }
 
-    suspend fun finishPairing() = withContext(Dispatchers.IO) {
-        bridge.finishPairing()
-        _status.update { it.copy(paired = true) }
-        refreshConversations()
+    suspend fun refreshQr(): String = withContext(Dispatchers.IO) { bridge.refreshQR() }
+
+    /** Waits up to [ms] for the phone to scan. True once paired and saved securely. */
+    suspend fun waitForPairing(ms: Long): Boolean = withContext(Dispatchers.IO) {
+        val done = bridge.waitForPairing(ms)
+        if (done) {
+            _status.update { it.copy(paired = true) }
+            refreshConversations()
+        }
+        done
     }
 
     fun cancelPairing() {
@@ -239,10 +273,30 @@ object Engine : Listener {
 
     fun unpair() {
         scope.launch {
-            runCatching { bridge.unpair() }
+            val result = runCatching { bridge.unpair() }
             clearLocalData()
+            wipeLocalFiles()
             _status.update { it.copy(paired = false, state = "unpaired") }
+            _diag.value = Diagnostics(
+                lastUnpair = result.exceptionOrNull()?.message?.substringAfterLast("Exception: ")
+                    ?: "Pairing keys deleted from this phone; Google accepted the revoke request",
+            )
         }
+    }
+
+    /** Builds 1-5 signed in to Google inside a WebView; its cookies live in the WebView's data. */
+    private fun removeLegacyWebViewData(): Boolean {
+        var removed = false
+        for (d in listOf(File(app.dataDir, "app_webview"), File(app.cacheDir, "WebView"))) {
+            if (d.exists()) removed = d.deleteRecursively() || removed
+        }
+        return removed
+    }
+
+    private fun wipeLocalFiles() {
+        runCatching { File(app.filesDir, "avatars").deleteRecursively() }
+        runCatching { app.cacheDir.listFiles()?.forEach { it.deleteRecursively() } }
+        runCatching { com.msgs.app.util.CrashLog.clear(app) }
     }
 
     // ---------------------------------------------------------------- conversations
@@ -256,6 +310,7 @@ object Engine : Listener {
             val list = (0 until arr.length()).map { Conversation.from(arr.getJSONObject(it)) }
             _conversations.update { old -> old + list.associateBy { it.id } }
             Prefs.seedPins(list.filter { it.pinnedRemote }.map { it.id })
+            _diag.update { it.copy(lastSync = System.currentTimeMillis()) }
             saveCacheSoon()
             AvatarRepo.prefetch(list)
         } catch (e: Exception) {
@@ -285,6 +340,10 @@ object Engine : Listener {
     }
 
     fun deleteConversation(convId: String) {
+        if (!com.msgs.app.BuildConfig.ALLOW_DELETE) {
+            toast("Deleting is turned off in this test build")
+            return
+        }
         _conversations.update { it - convId }
         _messages.update { it - convId }
         Prefs.setPinned(convId, false)
@@ -428,6 +487,7 @@ object Engine : Listener {
         scope.launch {
             try {
                 bridge.sendText(convId, trimmed, replyTo.orEmpty(), tmpId)
+                _diag.update { it.copy(lastSend = System.currentTimeMillis()) }
             } catch (e: Exception) {
                 updateMessage(convId, localId) { it.copy(failed = true) }
                 report(e)
@@ -531,6 +591,10 @@ object Engine : Listener {
     }
 
     fun deleteMessage(message: Message) {
+        if (!com.msgs.app.BuildConfig.ALLOW_DELETE) {
+            toast("Deleting is turned off in this test build")
+            return
+        }
         _messages.update { all -> all + (message.convId to all[message.convId].orEmpty().filter { it.id != message.id }) }
         if (message.pending) return
         scope.launch {
@@ -605,10 +669,19 @@ object Engine : Listener {
 
     fun report(e: Throwable) {
         val msg = e.message?.substringAfterLast("Exception: ")?.trim().orEmpty().ifBlank { "Something went wrong" }
-        Log.w(TAG, msg, e)
+        Log.w(TAG, msg)
+        noteError(msg)
         runCatching { bridge.logLine("warn", msg) }
         _toasts.tryEmit(msg.replaceFirstChar { it.uppercase() })
     }
+
+    private fun noteError(msg: String) {
+        if (msg.isBlank()) return
+        _diag.update { it.copy(lastError = msg.take(200), lastErrorAt = System.currentTimeMillis()) }
+    }
+
+    /** Messages held in memory for opened chats (not the full history on the phone). */
+    fun loadedMessageCount(): Int = _messages.value.values.sumOf { it.size }
 
     fun toast(message: String) {
         _toasts.tryEmit(message)

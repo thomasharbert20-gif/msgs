@@ -138,7 +138,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             }
         }
 
-        item {
+        if (BuildConfig.UPDATER_ENABLED) item {
             Section("Updates") {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -261,6 +261,8 @@ fun SettingsScreen(onBack: () -> Unit) {
 
         item {
             Section("Diagnostics") {
+                SettingRow(MsgsIcons.Info, "Engine diagnostics", onClick = { DiagnosticsNav.open = true })
+                RowDivider()
                 SettingRow(MsgsIcons.Copy, "Copy engine log", onClick = {
                     clipboard.setText(AnnotatedString(runCatching { Engine.bridge.readLog() }.getOrDefault("")))
                     Engine.toast("Engine log copied")
@@ -276,7 +278,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                     CrashLog.clear(context)
                     Engine.toast("Crash log cleared")
                 })
-                Hint("If something breaks, copy a log and paste it to Claude.")
+                Hint("Logs never include message text, numbers or pairing keys. Check before sharing anyway.")
             }
         }
     }

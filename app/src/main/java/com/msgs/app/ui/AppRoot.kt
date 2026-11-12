@@ -26,6 +26,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -55,11 +56,13 @@ fun AppRoot(pendingConversation: String?, onPendingHandled: () -> Unit) {
             Engine.toasts.collect { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
         }
         LaunchedEffect(status.paired) {
-            if (status.paired) Updater.check(context)
+            if (status.paired && com.msgs.app.BuildConfig.UPDATER_ENABLED) Updater.check(context)
         }
         Box(Modifier.fillMaxSize().background(Ink.Bg)) {
-            if (!status.paired) {
-                PairingScreen()
+            if (DiagnosticsNav.open) {
+                DiagnosticsScreen(onBack = { DiagnosticsNav.open = false })
+            } else if (!status.paired) {
+                PairingScreen(onDiagnostics = { DiagnosticsNav.open = true })
             } else {
                 Navigator(pendingConversation, onPendingHandled)
             }
@@ -166,4 +169,9 @@ private fun EmptyDetail() {
             textAlign = TextAlign.Center,
         )
     }
+}
+
+/** Diagnostics sits above everything (paired or not), so it's a single app-wide flag. */
+object DiagnosticsNav {
+    var open by androidx.compose.runtime.mutableStateOf(false)
 }
